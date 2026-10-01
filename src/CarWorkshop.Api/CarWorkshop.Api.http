@@ -1,6 +1,33 @@
-@CarWorkshop.Api_HostAddress = http://localhost:5272
+@CarWorkshop.Api_HostAddress = https://localhost:7037
 
-GET {{CarWorkshop.Api_HostAddress}}/weatherforecast/
+GET {{CarWorkshop.Api_HostAddress}}/api/cars
 Accept: application/json
 
 ###
+
+GET {{CarWorkshop.Api_HostAddress}}/api/cars/1
+Accept: application/json
+
+
+###
+
+POST {{CarWorkshop.Api_HostAddress}}/api/cars
+Content-Type: application/json
+
+{
+  "brand": "Perodua",
+  "model": "Myvi"
+}
+###
+
+DELETE {{CarWorkshop.Api_HostAddress}}/api/cars/2
+
+###
+
+PUT {{CarWorkshop.Api_HostAddress}}/api/cars/3
+Content-Type: application/json
+
+{
+  "brand": "Honda",
+  "model": "City"
+}
