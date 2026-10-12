@@ -1,4 +1,16 @@
 @CarWorkshop.Api_HostAddress = https://localhost:7037
+###
+//CREATE
+POST {{CarWorkshop.Api_HostAddress}}/api/cars
+Content-Type: application/json
+
+{
+    "brand": " Lamborghini ",
+    "model" :" Aventador "
+}
+
+###
+//READ
 
 GET {{CarWorkshop.Api_HostAddress}}/api/cars
 Accept: application/json
@@ -8,26 +20,18 @@ Accept: application/json
 GET {{CarWorkshop.Api_HostAddress}}/api/cars/1
 Accept: application/json
 
+###
+//DELETE
+
+DELETE {{CarWorkshop.Api_HostAddress}}/api/cars/8
 
 ###
+//Edit
 
-POST {{CarWorkshop.Api_HostAddress}}/api/cars
+PUT {{CarWorkshop.Api_HostAddress}}/api/cars/5
 Content-Type: application/json
 
 {
-  "brand": "Perodua",
-  "model": "Myvi"
-}
-###
-
-DELETE {{CarWorkshop.Api_HostAddress}}/api/cars/2
-
-###
-
-PUT {{CarWorkshop.Api_HostAddress}}/api/cars/3
-Content-Type: application/json
-
-{
-  "brand": "Honda",
-  "model": "City"
+  "brand": "  Honda   ",
+  "model": "Civic Gm6"
 }

@@ -12,4 +12,14 @@ public class CarWorkshopDbContext : DbContext
     }
 
     public DbSet<Car> Cars { get; set; }
+
+    public DbSet<Customer> Customers { get; set; }
+
+    public DbSet<Vehicle> Vehicles { get; set; }
+
+    protected override void OnModelCreating(ModelBuilder modelBuilder)
+    {
+        base.OnModelCreating(modelBuilder);
+        modelBuilder.ApplyConfigurationsFromAssembly(typeof(CarWorkshopDbContext).Assembly);
+    }
 }

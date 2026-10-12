@@ -26,8 +26,8 @@ namespace CarWorkshop.Api.Services
         {
             var newCar = new Car
             {
-                Brand = brand,
-                Model = model
+                Brand = brand.Trim(),
+                Model = model.Trim()
             };
 
             _context.Cars.Add(newCar);
@@ -56,8 +56,8 @@ namespace CarWorkshop.Api.Services
             if (car == null)
                 return null;
 
-            car.Brand = brand;
-            car.Model = model;
+            car.Brand = brand.Trim();
+            car.Model = model.Trim();
 
             _context.SaveChanges();
 
