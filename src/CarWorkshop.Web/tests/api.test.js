@@ -50,6 +50,20 @@ test("initial URL falls back when browser storage throws or contains invalid dat
   assert.equal(saveApiBaseUrl(null, "http://localhost:5272").ok, false);
 });
 
+test("local Vite page uses its own origin and ignores the old direct API address", () => {
+  const pageUrl = "http://127.0.0.1:4173/";
+  const fresh = resolveInitialApiBaseUrl({ pageUrl });
+  assert.equal(fresh.url, "http://127.0.0.1:4173");
+  assert.equal(fresh.source, "fallback");
+
+  const existing = resolveInitialApiBaseUrl({
+    pageUrl,
+    storage: { getItem: () => "http://localhost:5272" }
+  });
+  assert.equal(existing.url, "http://127.0.0.1:4173");
+  assert.equal(existing.invalidStoredValue, false);
+});
+
 test("customer validation trims values and validates phone digits", () => {
   assert.deepEqual(validateCustomer({ fullName: " Nur Aina ", phone: " +60 12-345 6789 ", address: " " }), {
     values: { fullName: "Nur Aina", phone: "+60 12-345 6789", address: null },

@@ -15,7 +15,7 @@ Open http://127.0.0.1:4173. Start the backend from the repository root with:
 dotnet run --project src/CarWorkshop.Api/CarWorkshop.Api.csproj --launch-profile http
 ```
 
-The default API URL is http://localhost:5272. API settings stores an override in browser storage. `.env.example` shows the optional Vite configuration; credentials must never be put in frontend environment variables.
+The frontend uses its own address for `/api` by default. During local development, Vite forwards those requests to the C# API at http://127.0.0.1:5272. API settings stores an override in browser storage. `.env.example` shows the optional configuration for a separately hosted API; credentials must never be put in frontend environment variables.
 
 `npm test` runs API-client and validation tests. `npm run build` generates the production frontend in `dist`.
 

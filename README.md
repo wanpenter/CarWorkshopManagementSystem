@@ -37,7 +37,7 @@ npm ci
 npm run dev
 ```
 
-Open http://127.0.0.1:4173. The frontend calls http://localhost:5272 by default. API settings can override that URL in the browser. Set `VITE_API_BASE_URL` in the frontend's `.env.local` to change the build-time default; restart Vite after changing it. Only public configuration belongs in `VITE_` variables because these values are sent to the browser.
+Open http://127.0.0.1:4173. In local development, the frontend calls `/api` on its own address and Vite forwards those requests to the C# API at http://127.0.0.1:5272. API settings can override the address in the browser. Set `VITE_API_BASE_URL` in the frontend's `.env.local` only when using a separately hosted API; restart Vite after changing it. Only public configuration belongs in `VITE_` variables because these values are sent to the browser.
 
 ## Project structure
 

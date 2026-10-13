@@ -43,7 +43,7 @@ export function SettingsDialog({ open, initialValue, busy, onClose, onSave }) {
         <p className="mt-2 mb-6 text-ink-soft">Enter the base address of the running ASP.NET Core backend.</p>
         <label className="mb-2 block font-bold" htmlFor="api-url-input">API base URL</label>
         <input ref={inputRef} id="api-url-input" className="control-input" type="url" autoComplete="url" value={value} aria-invalid={error ? "true" : undefined} aria-describedby={error ? "api-url-help api-url-error" : "api-url-help"} onChange={(event) => { setValue(event.target.value); setError(""); }} />
-        <p id="api-url-help" className="mt-2 text-sm text-ink-soft">Local development normally uses http://localhost:5272.</p>
+        <p id="api-url-help" className="mt-2 text-sm text-ink-soft">Local development normally uses this page's address. The dev server forwards API requests to the C# backend.</p>
         {error && <p id="api-url-error" className="mt-2 text-sm font-semibold text-danger" role="alert">{error}</p>}
         <div className="mt-6 flex flex-wrap justify-end gap-2 max-[500px]:[&>*]:w-full">
           <button className="button button-primary" type="submit" disabled={busy || saving}>{saving ? "Saving..." : "Save and connect"}</button>

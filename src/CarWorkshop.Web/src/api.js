@@ -1,5 +1,6 @@
 export const API_STORAGE_KEY = "car-workshop-api-base-url";
-export const FALLBACK_API_BASE_URL = "http://localhost:5272";
+export const FALLBACK_API_BASE_URL = "http://localhost";
+const LEGACY_LOCAL_API_BASE_URLS = new Set(["http://localhost:5272", "http://127.0.0.1:5272"]);
 export const DEFAULT_REQUEST_TIMEOUT_MS = 10_000;
 
 export class ApiError extends Error {
@@ -52,7 +53,7 @@ export function validateApiBaseUrl(value, { pageUrl = "http://localhost" } = {})
 export function resolveInitialApiBaseUrl({
   storage,
   environmentUrl,
-  fallbackUrl = FALLBACK_API_BASE_URL,
+  fallbackUrl,
   pageUrl = "http://localhost"
 } = {}) {
   let storageError = false;
@@ -63,10 +64,21 @@ export function resolveInitialApiBaseUrl({
     storageError = true;
   }
 
+  let page;
+  try {
+    page = new URL(pageUrl);
+  } catch {
+    page = null;
+  }
+  const isLocalVitePage = page?.port === "4173" && ["localhost", "127.0.0.1"].includes(page.hostname);
+  if (isLocalVitePage && LEGACY_LOCAL_API_BASE_URLS.has(storedValue?.replace(/\/+$/, ""))) {
+    storedValue = null;
+  }
+
   for (const [source, candidate] of [
     ["storage", storedValue],
     ["environment", environmentUrl],
-    ["fallback", fallbackUrl]
+    ["fallback", fallbackUrl ?? page?.origin ?? FALLBACK_API_BASE_URL]
   ]) {
     if (!candidate) continue;
     const validation = validateApiBaseUrl(candidate, { pageUrl });
