@@ -5,168 +5,149 @@ using CarWorkshop.Domain.Entities;
 
 namespace CarWorkshop.Application.Services;
 
-public sealed class AppointmentService
+public sealed class AppointmentService(
+    IAppointmentRepository appointments,
+    ICustomerRepository customers,
+    IVehicleRepository vehicles,
+    IServiceRepository services,
+    IUnitOfWork unitOfWork,
+    TimeProvider timeProvider)
 {
-    private readonly IAppointmentRepository _appointments;
-    private readonly ICustomerRepository _customers;
-    private readonly IVehicleRepository _vehicles;
-    private readonly IUnitOfWork _unitOfWork;
-    private readonly TimeProvider _timeProvider;
+    private static readonly TimeSpan MalaysiaOffset = TimeSpan.FromHours(8);
 
-    public AppointmentService(
-        IAppointmentRepository appointments,
-        ICustomerRepository customers,
-        IVehicleRepository vehicles,
-        IUnitOfWork unitOfWork,
-        TimeProvider timeProvider)
-    {
-        _appointments = appointments;
-        _customers = customers;
-        _vehicles = vehicles;
-        _unitOfWork = unitOfWork;
-        _timeProvider = timeProvider;
-    }
-
-    public async Task<IReadOnlyList<AppointmentDetails>> GetAllAsync(
-        int? customerId,
-        AppointmentStatus? status,
-        CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<AppointmentDetails>> GetAllAsync(int? customerId,
+        AppointmentStatus? status, CancellationToken cancellationToken = default)
     {
         if (customerId.HasValue)
-        {
             await FindCustomerAsync(customerId.Value, cancellationToken);
-        }
-
-        var appointments = await _appointments.GetAllAsync(customerId, status, cancellationToken);
-        return appointments.Select(ToDetails).ToArray();
+        return (await appointments.GetAllAsync(customerId, status, cancellationToken))
+            .Select(ToDetails).ToArray();
     }
 
-    public async Task<AppointmentDetails> GetByIdAsync(
-        int id,
+    public async Task<AppointmentDetails> GetByIdAsync(int id, CancellationToken cancellationToken = default) =>
+        ToDetails(await FindAppointmentAsync(id, cancellationToken));
+
+    public async Task<AppointmentDetails> CreateAsync(AppointmentCommand command,
         CancellationToken cancellationToken = default)
     {
-        return ToDetails(await FindAppointmentAsync(id, cancellationToken));
-    }
-
-    public async Task<AppointmentDetails> CreateAsync(
-        AppointmentCommand command,
-        CancellationToken cancellationToken = default)
-    {
-        if (command.Status != AppointmentStatus.Scheduled)
-        {
-            throw new ArgumentException(
-                "A new appointment must have Scheduled status.",
-                nameof(command.Status));
-        }
-
+        if (command.Status != AppointmentStatus.Requested)
+            throw new ArgumentException("A new appointment must have Requested status.", nameof(command.Status));
         var customer = await FindCustomerAsync(command.CustomerId, cancellationToken);
         var vehicle = await FindVehicleAsync(command.VehicleId, cancellationToken);
         ValidateOwnership(command.CustomerId, vehicle);
-
-        var nowUtc = _timeProvider.GetUtcNow().UtcDateTime;
-        var appointment = Appointment.Create(
-            command.CustomerId,
-            command.VehicleId,
-            command.ScheduledAtUtc,
-            command.ServiceType,
-            command.Notes,
-            nowUtc,
-            nowUtc);
-
-        await _appointments.AddAsync(appointment, cancellationToken);
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
-        return ToDetails(appointment, customer, vehicle);
+        var selected = await FindServicesAsync(command.ServiceIds, [], cancellationToken);
+        var nowUtc = timeProvider.GetUtcNow().UtcDateTime;
+        var appointment = Appointment.CreateBooking(command.CustomerId, command.VehicleId,
+            command.ScheduledAtUtc, selected, command.Notes, nowUtc);
+        var day = ValidateWorkingHours(appointment);
+        return await appointments.WithDayLockAsync(day, async () =>
+        {
+            await ValidateCapacityAsync(appointment, null, cancellationToken);
+            await appointments.AddAsync(appointment, cancellationToken);
+            await unitOfWork.SaveChangesAsync(cancellationToken);
+            return ToDetails(appointment, customer, vehicle);
+        }, cancellationToken);
     }
 
-    public async Task<AppointmentDetails> UpdateAsync(
-        int id,
-        AppointmentCommand command,
+    public async Task<AppointmentDetails> UpdateAsync(int id, AppointmentCommand command,
         CancellationToken cancellationToken = default)
     {
         var appointment = await FindAppointmentAsync(id, cancellationToken);
         var customer = await FindCustomerAsync(command.CustomerId, cancellationToken);
         var vehicle = await FindVehicleAsync(command.VehicleId, cancellationToken);
-        if (command.CustomerId != appointment.CustomerId ||
-            command.VehicleId != appointment.VehicleId)
+        ValidateOwnership(command.CustomerId, vehicle);
+        var selected = await FindServicesAsync(command.ServiceIds,
+            appointment.Services.Select(item => item.ServiceId).ToArray(), cancellationToken);
+        var day = DateOnly.FromDateTime(command.ScheduledAtUtc.Add(MalaysiaOffset));
+        return await appointments.WithDayLockAsync(day, async () =>
         {
-            ValidateOwnership(command.CustomerId, vehicle);
-        }
-
-        try
-        {
-            appointment.Update(
-                command.CustomerId,
-                command.VehicleId,
-                command.ScheduledAtUtc,
-                command.ServiceType,
-                command.Notes,
-                command.Status,
-                _timeProvider.GetUtcNow().UtcDateTime);
-        }
-        catch (InvalidOperationException exception)
-        {
-            throw new ConflictException(exception.Message);
-        }
-
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
-        return ToDetails(appointment, customer, vehicle);
+            try
+            {
+                appointment.UpdateBooking(command.CustomerId, command.VehicleId,
+                    command.ScheduledAtUtc, selected, command.Notes, command.Status,
+                    timeProvider.GetUtcNow().UtcDateTime);
+            }
+            catch (InvalidOperationException exception)
+            {
+                throw new ConflictException(exception.Message);
+            }
+            ValidateWorkingHours(appointment);
+            if (ConsumesCapacity(appointment.Status))
+                await ValidateCapacityAsync(appointment, id, cancellationToken);
+            await unitOfWork.SaveChangesAsync(cancellationToken);
+            return ToDetails(appointment, customer, vehicle);
+        }, cancellationToken);
     }
 
-    private async Task<Appointment> FindAppointmentAsync(
-        int id,
+    private async Task ValidateCapacityAsync(Appointment proposed, int? ownId,
         CancellationToken cancellationToken)
     {
-        return await _appointments.GetByIdAsync(id, cancellationToken)
+        var dayStartUtc = proposed.ScheduledAtUtc.Add(MalaysiaOffset).Date.Subtract(MalaysiaOffset);
+        var bookings = await appointments.GetForDayAsync(dayStartUtc, dayStartUtc.AddDays(1), cancellationToken);
+        var active = bookings.Where(item => item.Id != ownId && ConsumesCapacity(item.Status)).ToArray();
+        if (active.Length >= 10)
+            throw new ConflictException("This day already has 10 active bookings.");
+        if (active.Any(item => item.VehicleId == proposed.VehicleId &&
+            item.ScheduledAtUtc < proposed.EstimatedEndUtc &&
+            (item.EstimatedEndUtc ?? item.ScheduledAtUtc.AddMinutes(30)) > proposed.ScheduledAtUtc))
+            throw new ConflictException("This vehicle already has an overlapping booking.");
+    }
+
+    private static bool ConsumesCapacity(AppointmentStatus status) =>
+        status is not (AppointmentStatus.Cancelled or AppointmentStatus.Rejected);
+
+    private static DateOnly ValidateWorkingHours(Appointment appointment)
+    {
+        var localStart = appointment.ScheduledAtUtc.Add(MalaysiaOffset);
+        var localEnd = appointment.EstimatedEndUtc!.Value.Add(MalaysiaOffset);
+        var startMinutes = localStart.Hour * 60 + localStart.Minute;
+        if (startMinutes < 510 || startMinutes >= 1050 || (startMinutes - 510) % 30 != 0 ||
+            localStart.Second != 0 || localStart.Millisecond != 0 ||
+            localEnd.Date != localStart.Date || localEnd.TimeOfDay > new TimeSpan(17, 30, 0))
+            throw new ArgumentException(
+                "Choose a 30-minute start between 08:30 and 17:00 Malaysia time; services must finish by 17:30.",
+                "scheduledAtUtc");
+        return DateOnly.FromDateTime(localStart);
+    }
+
+    private async Task<IReadOnlyList<Service>> FindServicesAsync(IReadOnlyList<int> ids,
+        IReadOnlyList<int> existingIds,
+        CancellationToken cancellationToken)
+    {
+        if (ids is null || ids.Count == 0 || ids.Any(id => id <= 0) || ids.Distinct().Count() != ids.Count)
+            throw new ArgumentException("Choose one or more distinct services.", "serviceIds");
+        var selected = await services.GetByIdsAsync(ids, cancellationToken);
+        if (selected.Count != ids.Count)
+            throw new ArgumentException("One or more services do not exist.", "serviceIds");
+        if (selected.Any(service => !service.IsActive && !existingIds.Contains(service.Id)))
+            throw new ArgumentException("Inactive services cannot be added to a booking.", "serviceIds");
+        return ids.Select(id => selected.Single(service => service.Id == id)).ToArray();
+    }
+
+    private async Task<Appointment> FindAppointmentAsync(int id, CancellationToken cancellationToken) =>
+        await appointments.GetByIdAsync(id, cancellationToken)
             ?? throw new EntityNotFoundException("Appointment", id);
-    }
-
-    private async Task<Customer> FindCustomerAsync(
-        int id,
-        CancellationToken cancellationToken)
-    {
-        return await _customers.GetByIdAsync(id, cancellationToken)
+    private async Task<Customer> FindCustomerAsync(int id, CancellationToken cancellationToken) =>
+        await customers.GetByIdAsync(id, cancellationToken)
             ?? throw new EntityNotFoundException("Customer", id);
-    }
-
-    private async Task<Vehicle> FindVehicleAsync(
-        int id,
-        CancellationToken cancellationToken)
-    {
-        return await _vehicles.GetByIdAsync(id, cancellationToken)
+    private async Task<Vehicle> FindVehicleAsync(int id, CancellationToken cancellationToken) =>
+        await vehicles.GetByIdAsync(id, cancellationToken)
             ?? throw new EntityNotFoundException("Vehicle", id);
-    }
 
     private static void ValidateOwnership(int customerId, Vehicle vehicle)
     {
         if (vehicle.CustomerId != customerId)
-        {
-            throw new ArgumentException(
-                "Vehicle does not belong to the selected customer.",
-                "vehicleId");
-        }
+            throw new ArgumentException("Vehicle does not belong to the selected customer.", "vehicleId");
     }
 
-    private static AppointmentDetails ToDetails(Appointment appointment)
-    {
-        return ToDetails(appointment, appointment.Customer, appointment.Vehicle);
-    }
+    private static AppointmentDetails ToDetails(Appointment appointment) =>
+        ToDetails(appointment, appointment.Customer, appointment.Vehicle);
 
-    private static AppointmentDetails ToDetails(
-        Appointment appointment,
-        Customer customer,
-        Vehicle vehicle)
-    {
-        return new AppointmentDetails(
-            appointment.Id,
-            appointment.CustomerId,
-            customer.FullName,
-            appointment.VehicleId,
-            vehicle.RegistrationNumber,
-            $"{vehicle.Make} {vehicle.Model}",
-            appointment.ScheduledAtUtc,
-            appointment.ServiceType,
-            appointment.Notes,
-            appointment.Status.ToString(),
-            appointment.CreatedAt);
-    }
+    private static AppointmentDetails ToDetails(Appointment appointment, Customer customer, Vehicle vehicle) =>
+        new(appointment.Id, appointment.CustomerId, customer.FullName, appointment.VehicleId,
+            vehicle.RegistrationNumber, $"{vehicle.Make} {vehicle.Model}", appointment.ScheduledAtUtc,
+            appointment.EstimatedEndUtc, appointment.ServiceType,
+            appointment.Services.Select(item => new AppointmentServiceDetails(item.ServiceId,
+                item.Name, item.Price, item.DurationMinutes)).ToArray(),
+            appointment.Notes, appointment.Status.ToString(), appointment.CreatedAt);
 }

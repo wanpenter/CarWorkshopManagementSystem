@@ -17,6 +17,16 @@ internal sealed class AppointmentConfiguration : IEntityTypeConfiguration<Appoin
                 value => DateTime.SpecifyKind(value, DateTimeKind.Utc))
             .IsRequired();
 
+        builder.Property(appointment => appointment.EstimatedEndUtc)
+            .HasConversion(
+                value => value,
+                value => value.HasValue ? DateTime.SpecifyKind(value.Value, DateTimeKind.Utc) : null);
+
+        builder.HasMany(appointment => appointment.Services)
+            .WithOne(item => item.Appointment)
+            .HasForeignKey(item => item.AppointmentId)
+            .OnDelete(DeleteBehavior.Cascade);
+
         builder.Property(appointment => appointment.ServiceType)
             .HasMaxLength(100)
             .IsRequired();

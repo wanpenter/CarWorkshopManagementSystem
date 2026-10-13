@@ -125,11 +125,11 @@
   }
 
   .section-nav {
-    @apply flex gap-1 border-b border-line-strong bg-paper-raised px-[clamp(1rem,5vw,5rem)] max-[500px]:px-2;
+    @apply flex gap-1 overflow-x-auto border-b border-line-strong bg-paper-raised px-[clamp(1rem,5vw,5rem)] max-[500px]:grid max-[500px]:grid-cols-2 max-[500px]:gap-0 max-[500px]:overflow-visible max-[500px]:px-2;
   }
 
   .section-tab {
-    @apply relative min-h-12 cursor-pointer border-0 bg-transparent px-4 py-3 font-bold text-ink-soft transition-colors hover:bg-paper-muted hover:text-ink aria-[current=page]:text-rust-dark max-[500px]:flex-1 max-[500px]:px-2;
+    @apply relative min-h-12 shrink-0 cursor-pointer border-0 bg-transparent px-4 py-3 font-bold text-ink-soft transition-colors hover:bg-paper-muted hover:text-ink aria-[current=page]:text-rust-dark max-[500px]:w-full max-[500px]:px-2 max-[500px]:text-center;
   }
 
   .section-tab[aria-current="page"]::after {
@@ -176,6 +176,14 @@
 
   .appointment-search {
     @apply max-[900px]:col-span-2 max-[620px]:col-span-1;
+  }
+
+  .service-filters {
+    @apply grid-cols-[minmax(12rem,1fr)_auto] max-[620px]:grid-cols-1;
+  }
+
+  .service-choice {
+    @apply flex min-h-14 cursor-pointer items-center gap-3 rounded-sm border border-paper-line bg-paper-raised px-3 py-2.5 has-[:checked]:border-rust-dark has-[:checked]:bg-rust-soft hover:border-line-strong;
   }
 
   .form-actions {
@@ -241,7 +249,7 @@
 @media (max-width: 31.25rem) {
   .section-nav {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     padding-inline: 0.25rem;
   }
 

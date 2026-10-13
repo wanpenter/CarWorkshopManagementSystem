@@ -14,4 +14,10 @@ public interface IAppointmentRepository
         CancellationToken cancellationToken = default);
 
     Task AddAsync(Appointment appointment, CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<Appointment>> GetForDayAsync(DateTime dayStartUtc, DateTime nextDayUtc,
+        CancellationToken cancellationToken = default);
+
+    Task<T> WithDayLockAsync<T>(DateOnly day, Func<Task<T>> action,
+        CancellationToken cancellationToken = default);
 }

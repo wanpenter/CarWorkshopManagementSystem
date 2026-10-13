@@ -8,6 +8,7 @@ import {
 } from "./api.js";
 import CustomersSection from "./components/CustomersSection.jsx";
 import AppointmentsSection from "./components/AppointmentsSection.jsx";
+import ServicesSection from "./components/ServicesSection.jsx";
 import { DeleteDialog, SettingsDialog } from "./components/Dialogs.jsx";
 import { ConnectionStatus, Notice } from "./components/Shared.jsx";
 import VehiclesSection from "./components/VehiclesSection.jsx";
@@ -32,6 +33,7 @@ function App() {
   const [customers, setCustomers] = useState([]);
   const [vehicles, setVehicles] = useState([]);
   const [appointments, setAppointments] = useState([]);
+  const [services, setServices] = useState([]);
   const [status, setStatus] = useState(apiBaseUrl ? "loading" : "disconnected");
   const [errorMessage, setErrorMessage] = useState("");
   const [activeTab, setActiveTab] = useState("customers");
@@ -90,18 +92,20 @@ function App() {
     }
 
     try {
-      const [customerResult, vehicleResult, appointmentResult] = await Promise.all([
+      const [customerResult, vehicleResult, appointmentResult, serviceResult] = await Promise.all([
         api.getCustomers({ signal: controller.signal }),
         api.getVehicles({ signal: controller.signal }),
-        api.getAppointments({ signal: controller.signal })
+        api.getAppointments({ signal: controller.signal }),
+        api.getServices({ signal: controller.signal })
       ]);
-      if (!Array.isArray(customerResult) || !Array.isArray(vehicleResult) || !Array.isArray(appointmentResult)) {
-        throw new Error("The API response did not contain complete customer, vehicle, and appointment lists.");
+      if (![customerResult, vehicleResult, appointmentResult, serviceResult].every(Array.isArray)) {
+        throw new Error("The API response did not contain complete workshop records.");
       }
       if (!mountedRef.current || activeLoadRef.current.revision !== revision) return { ok: false, stale: true };
       setCustomers(customerResult);
       setVehicles(vehicleResult);
       setAppointments(appointmentResult);
+      setServices(serviceResult);
       setStatus("ready");
       setErrorMessage("");
       return { ok: true };
@@ -113,6 +117,7 @@ function App() {
         setCustomers([]);
         setVehicles([]);
         setAppointments([]);
+        setServices([]);
         setStatus("error");
         setErrorMessage(error.message);
       }
@@ -161,6 +166,18 @@ function App() {
       if (id === null) await api.addAppointment(values);
       else await api.updateAppointment(id, values);
       await refreshAfterWrite(id === null ? "Appointment booked." : "Appointment changes saved.");
+    } finally {
+      if (mountedRef.current) setMutating(false);
+    }
+  }
+
+  async function saveService(id, values) {
+    if (!api || mutating) throw new Error("Another change is still in progress.");
+    setMutating(true);
+    try {
+      if (id === null) await api.addService(values);
+      else await api.updateService(id, values);
+      await refreshAfterWrite(id === null ? "Service added." : "Service changes saved.");
     } finally {
       if (mountedRef.current) setMutating(false);
     }
@@ -259,6 +276,7 @@ function App() {
         <button id="customers-nav" className="section-tab" type="button" aria-current={activeTab === "customers" ? "page" : undefined} onClick={() => setActiveTab("customers")}>Customers <span className="tab-count">{customers.length}</span></button>
         <button id="vehicles-nav" className="section-tab" type="button" aria-current={activeTab === "vehicles" ? "page" : undefined} onClick={() => setActiveTab("vehicles")}>Vehicles <span className="tab-count">{vehicles.length}</span></button>
         <button id="appointments-nav" className="section-tab" type="button" aria-current={activeTab === "appointments" ? "page" : undefined} onClick={() => setActiveTab("appointments")}>Appointments <span className="tab-count">{appointments.length}</span></button>
+        <button id="services-nav" className="section-tab" type="button" aria-current={activeTab === "services" ? "page" : undefined} onClick={() => setActiveTab("services")}>Services <span className="tab-count">{services.length}</span></button>
       </nav>
 
       <main id="main-content">
@@ -297,12 +315,24 @@ function App() {
           customers={customers}
           vehicles={vehicles}
           appointments={appointments}
+          services={services}
           busy={busy}
           onOpenSettings={openSettings}
           onRetry={loadRecords}
           onSave={saveAppointment}
           onAddCustomer={goToCustomers}
           onAddVehicle={goToVehicles}
+          onAddService={() => setActiveTab("services")}
+        />
+        <ServicesSection
+          active={activeTab === "services"}
+          status={status}
+          errorMessage={errorMessage}
+          services={services}
+          busy={busy}
+          onOpenSettings={openSettings}
+          onRetry={loadRecords}
+          onSave={saveService}
         />
       </main>
 

@@ -250,7 +250,7 @@ function VehicleRecords(props) {
                 <TableCell className="font-bold tracking-[0.03em]">{vehicle.registrationNumber}</TableCell>
                 <TableCell>{vehicle.make} {vehicle.model}</TableCell>
                 <TableCell>{vehicle.customerName}</TableCell>
-                <TableCell>{vehicle.year ?? "—"}</TableCell>
+                <TableCell>{vehicle.year ?? "Not provided"}</TableCell>
                 <TableCell>{Number(vehicle.mileage ?? 0).toLocaleString("en-MY")} km</TableCell>
                 <TableCell><span className={vehicle.isActive === false ? "status-text text-ink-soft" : "status-text text-success"}>{vehicle.isActive === false ? "Inactive" : "Active"}</span></TableCell>
                 <TableCell><VehicleActions vehicle={vehicle} busy={busy} onEdit={onEdit} onDelete={onDelete} /></TableCell>
@@ -265,7 +265,7 @@ function VehicleRecords(props) {
             <MobileDatum label="Registration"><strong>{vehicle.registrationNumber}</strong></MobileDatum>
             <MobileDatum label="Vehicle">{vehicle.make} {vehicle.model}</MobileDatum>
             <MobileDatum label="Owner">{vehicle.customerName}</MobileDatum>
-            <MobileDatum label="Year">{vehicle.year ?? "—"}</MobileDatum>
+            <MobileDatum label="Year">{vehicle.year ?? "Not provided"}</MobileDatum>
             <MobileDatum label="Mileage">{Number(vehicle.mileage ?? 0).toLocaleString("en-MY")} km</MobileDatum>
             <MobileDatum label="Status">{vehicle.isActive === false ? "Inactive" : "Active"}</MobileDatum>
             <div className="mt-2 border-t border-paper-line pt-2"><VehicleActions vehicle={vehicle} busy={busy} onEdit={onEdit} onDelete={onDelete} /></div>

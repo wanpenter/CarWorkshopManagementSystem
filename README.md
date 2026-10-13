@@ -5,8 +5,9 @@ Local development stack: React, Tailwind CSS, ASP.NET Core, Entity Framework Cor
 Staff can create and edit customers, register vehicles under an owner, change
 ownership, and search and filter records. Each vehicle has a unique registration
 number. A customer with vehicles cannot be deleted until those vehicles are moved
-or removed. Appointments link a customer and one of their vehicles to a scheduled
-service.
+or removed. The service catalogue records current prices and estimated durations.
+Appointments link a customer and vehicle to one or more services and keep a copy of
+each selected service's name, price, and duration at booking time.
 
 ## Run locally
 
@@ -45,12 +46,12 @@ Open http://127.0.0.1:4173. In local development, the frontend calls `/api` on i
 | --- | --- |
 | `src/CarWorkshop.Web` | React components, Tailwind styling, browser state, API client |
 | `src/CarWorkshop.Api` | HTTP endpoints, input validation, dependency registration |
-| `src/CarWorkshop.Application` | Customer, vehicle, and appointment use cases, contracts, and repository interfaces |
+| `src/CarWorkshop.Application` | Customer, vehicle, service, and appointment use cases, contracts, and repository interfaces |
 | `src/CarWorkshop.Domain` | Entities and core business rules |
 | `src/CarWorkshop.Infrastructure` | EF Core context, migrations, MySQL persistence |
 | `tests` | Backend unit and integration test projects |
 
-The browser calls the API. Customer, vehicle, and appointment requests pass through the API,
+The browser calls the API. Customer, vehicle, service, and appointment requests pass through the API,
 Application, Domain, and Infrastructure layers before EF Core writes to MySQL.
 The older `/api/cars` endpoint remains for its existing Brand/Model records. Those
 rows lack an owner and registration number, so they are preserved separately and
@@ -63,13 +64,20 @@ The API routes include `/api/customers`, `/api/customers/{id}`,
 vehicle writes use JSON. Validation returns HTTP 400, missing records 404,
 and duplicate registrations or protected customer deletion 409.
 
-Appointments use `/api/appointments` and `/api/appointments/{id}`. New bookings
-start as `Scheduled`; they can move to `InProgress`, then `Completed`, or be
-`Cancelled` before completion. The selected vehicle must belong to the selected
-customer. Appointment date and time are stored in UTC. Customers and vehicles
-linked to appointments are protected from deletion to preserve service records.
+Services use `/api/services` and `/api/services/{id}`. New bookings select one or
+more active services by ID. Inactive services cannot be added to new bookings, but
+existing bookings retain their service snapshots. Appointments use
+`/api/appointments` and `/api/appointments/{id}`. New bookings start as `Requested`.
+Staff can confirm or reject them; confirmed bookings can move to `InProgress`, then
+`Completed`, or be cancelled before completion. The selected vehicle must belong to
+the selected customer. Booking starts must be on a 30-minute interval between
+08:30 and 17:00 Malaysia time; the estimated work must finish by 17:30. At most 10
+active bookings are allowed per day, and the same vehicle cannot have overlapping
+active bookings. Appointment times are stored in UTC. Customers and vehicles linked
+to appointments are protected from deletion to preserve history. Appointments from
+the earlier free-text service version remain readable.
 
-Authentication, mechanic assignment, and service history are later
+Authentication, mechanic assignment, and actual service history are later
 modules. Run this unauthenticated version only in a trusted local environment.
 
 ## Verify

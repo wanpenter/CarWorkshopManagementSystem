@@ -188,7 +188,7 @@ function CustomerRecords(props) {
               <tr key={customer.id} className={Number(customer.id) === selectedId ? "bg-selected" : "transition-colors hover:bg-selected"}>
                 <TableCell className="font-bold">{customer.fullName}</TableCell>
                 <TableCell>{customer.phone}</TableCell>
-                <TableCell className="max-w-72 text-ink-soft">{customer.address || "—"}</TableCell>
+                <TableCell className="max-w-72 text-ink-soft">{customer.address || "Not provided"}</TableCell>
                 <TableCell><button className="count-link" type="button" disabled={busy} onClick={() => onViewVehicles(Number(customer.id))}>{Number(customer.vehicleCount ?? 0)} {Number(customer.vehicleCount ?? 0) === 1 ? "vehicle" : "vehicles"}</button></TableCell>
                 <TableCell><CustomerActions customer={customer} busy={busy} onEdit={onEdit} onDelete={onDelete} /></TableCell>
               </tr>
@@ -201,7 +201,7 @@ function CustomerRecords(props) {
           <article key={customer.id} className={`record-card ${Number(customer.id) === selectedId ? "border-line-strong bg-selected" : "border-paper-line bg-paper-raised"}`}>
             <MobileDatum label="Customer"><strong>{customer.fullName}</strong></MobileDatum>
             <MobileDatum label="Phone">{customer.phone}</MobileDatum>
-            <MobileDatum label="Address">{customer.address || "—"}</MobileDatum>
+            <MobileDatum label="Address">{customer.address || "Not provided"}</MobileDatum>
             <MobileDatum label="Vehicles"><button className="count-link" type="button" disabled={busy} onClick={() => onViewVehicles(Number(customer.id))}>{Number(customer.vehicleCount ?? 0)} registered</button></MobileDatum>
             <div className="mt-2 border-t border-paper-line pt-2"><CustomerActions customer={customer} busy={busy} onEdit={onEdit} onDelete={onDelete} /></div>
           </article>

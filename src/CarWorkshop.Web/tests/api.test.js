@@ -3,12 +3,15 @@ import test from "node:test";
 import {
   API_STORAGE_KEY,
   ApiError,
+  appointmentEstimate,
   canonicalizeRegistration,
   createApiClient,
   getProblemFieldErrors,
   resolveInitialApiBaseUrl,
   saveApiBaseUrl,
   toLocalDateTimeInput,
+  toWorkshopDateTimeInput,
+  toWorkshopUtcIso,
   toUtcIso,
   validateApiBaseUrl,
   validateAppointment,
@@ -111,14 +114,17 @@ test("appointment time helpers preserve the same minute through local and UTC va
   assert.equal(toUtcIso(toLocalDateTimeInput(source)), source);
   assert.equal(toUtcIso("not-a-date"), null);
   assert.equal(toLocalDateTimeInput("not-a-date"), "");
+  assert.equal(toWorkshopUtcIso("2030-06-01T12:30"), "2030-06-01T04:30:00.000Z");
+  assert.equal(toWorkshopDateTimeInput("2030-06-01T04:30:00.000Z"), "2030-06-01T12:30");
+  assert.equal(toWorkshopUtcIso("2030-02-30T09:00"), null);
 });
 
 test("appointment validation prepares a future create request without a status field", () => {
   const result = validateAppointment({
     customerId: "7",
     vehicleId: "11",
-    scheduledAtLocal: "2030-06-01T12:30:00.000Z",
-    serviceType: " Regular service ",
+    scheduledAtLocal: "2030-06-01T12:30",
+    serviceIds: [5, 8],
     notes: " "
   }, { now: new Date("2030-05-01T00:00:00.000Z") });
 
@@ -126,8 +132,8 @@ test("appointment validation prepares a future create request without a status f
   assert.deepEqual(result.values, {
     customerId: 7,
     vehicleId: 11,
-    scheduledAtUtc: "2030-06-01T12:30:00.000Z",
-    serviceType: "Regular service",
+    scheduledAtUtc: "2030-06-01T04:30:00.000Z",
+    serviceIds: [5, 8],
     notes: null
   });
   assert.equal("status" in result.values, false);
@@ -137,28 +143,56 @@ test("appointment validation enforces ownership choices, limits, and scheduled f
   const invalid = validateAppointment({
     customerId: "",
     vehicleId: "",
-    scheduledAtLocal: "2029-01-01T09:00:00.000Z",
-    serviceType: "x".repeat(101),
+    scheduledAtLocal: "2029-01-01T09:00",
+    serviceIds: [],
     notes: "x".repeat(501),
-    status: "Scheduled"
+    status: "Requested"
   }, { now: new Date("2030-01-01T00:00:00.000Z"), includeStatus: true });
 
   assert.equal(invalid.valid, false);
   assert.match(invalid.errors.customerId, /customer/i);
   assert.match(invalid.errors.vehicleId, /vehicle/i);
   assert.match(invalid.errors.scheduledAtUtc, /future/i);
-  assert.match(invalid.errors.serviceType, /100/);
+  assert.match(invalid.errors.serviceIds, /at least one/i);
   assert.match(invalid.errors.notes, /500/);
 
   const completed = validateAppointment({
     customerId: "7",
     vehicleId: "11",
-    scheduledAtLocal: "2029-01-01T09:00:00.000Z",
-    serviceType: "Inspection",
+    scheduledAtLocal: "2029-01-01T09:00",
+    serviceIds: [9],
     status: "Completed"
   }, { now: new Date("2030-01-01T00:00:00.000Z"), includeStatus: true });
   assert.equal(completed.valid, true);
   assert.equal(completed.values.status, "Completed");
+});
+
+test("appointment validation checks workshop slots and estimated finish", () => {
+  const base = { customerId: "7", vehicleId: "11", serviceIds: [5], scheduledAtLocal: "2030-06-01T16:30" };
+  assert.match(validateAppointment({ ...base, scheduledAtLocal: "2030-06-01T16:15" }, { now: new Date("2030-01-01") }).errors.scheduledAtUtc, /30-minute/i);
+  assert.match(validateAppointment({ ...base, totalMinutes: 90 }, { now: new Date("2030-01-01") }).errors.scheduledAtUtc, /5:30/i);
+  assert.equal(validateAppointment({ ...base, totalMinutes: 60 }, { now: new Date("2030-01-01") }).valid, true);
+});
+
+test("appointment estimate keeps booking snapshots until service selection changes", () => {
+  const appointment = { services: [
+    { serviceId: 5, name: "Original oil change", price: 80, durationMinutes: 60 },
+    { serviceId: 8, name: "Brake inspection", price: 50, durationMinutes: 30 }
+  ] };
+  const catalogue = [
+    { id: 5, name: "Oil change", currentPrice: 120, estimatedDurationMinutes: 90, isActive: false },
+    { id: 8, name: "Brake inspection", currentPrice: 60, estimatedDurationMinutes: 45, isActive: true },
+    { id: 9, name: "Tyres", currentPrice: 200, estimatedDurationMinutes: 45, isActive: true }
+  ];
+  const saved = appointmentEstimate(appointment, [8, 5], catalogue);
+  assert.equal(saved.unchanged, true);
+  assert.equal(saved.totalPrice, 130);
+  assert.equal(saved.totalMinutes, 90);
+  assert.equal(saved.items.find((item) => item.id === 5).name, "Original oil change");
+  const changed = appointmentEstimate(appointment, [5, 9], catalogue);
+  assert.equal(changed.unchanged, false);
+  assert.equal(changed.totalPrice, 320);
+  assert.equal(changed.totalMinutes, 135);
 });
 
 test("API client calls customer and vehicle routes with JSON writes and owner filtering", async () => {
@@ -189,8 +223,8 @@ test("API client calls appointment filters and sends create and update payloads"
       return new Response(JSON.stringify([]), { status: 200, headers: { "content-type": "application/json" } });
     }
   });
-  const createBody = { customerId: 7, vehicleId: 11, scheduledAtUtc: "2030-06-01T12:30:00.000Z", serviceType: "Service", notes: null };
-  const updateBody = { ...createBody, status: "InProgress" };
+  const createBody = { customerId: 7, vehicleId: 11, scheduledAtUtc: "2030-06-01T04:30:00.000Z", serviceIds: [5], notes: null };
+  const updateBody = { ...createBody, status: "Confirmed" };
 
   await client.getAppointments({ customerId: 7, status: "Scheduled" });
   await client.getAppointment(22);
@@ -203,7 +237,22 @@ test("API client calls appointment filters and sends create and update payloads"
   assert.deepEqual(JSON.parse(calls[2].options.body), createBody);
   assert.equal("status" in JSON.parse(calls[2].options.body), false);
   assert.equal(calls[3].options.method, "PUT");
-  assert.equal(JSON.parse(calls[3].options.body).status, "InProgress");
+  assert.equal(JSON.parse(calls[3].options.body).status, "Confirmed");
+});
+
+test("API client calls service catalogue routes", async () => {
+  const calls = [];
+  const client = createApiClient("http://localhost:5272", { fetchImpl: async (url, options) => {
+    calls.push({ url, options });
+    return new Response(JSON.stringify([]), { status: 200, headers: { "content-type": "application/json" } });
+  } });
+  const service = { name: "Inspection", description: null, currentPrice: 80, estimatedDurationMinutes: 30, isActive: true };
+  await client.getServices();
+  await client.addService(service);
+  await client.updateService(3, { ...service, isActive: false });
+  assert.deepEqual(calls.map((call) => call.url), ["http://localhost:5272/api/services", "http://localhost:5272/api/services", "http://localhost:5272/api/services/3"]);
+  assert.equal(calls[1].options.method, "POST");
+  assert.equal(JSON.parse(calls[2].options.body).isActive, false);
 });
 
 test("ProblemDetails field names map to React form fields", async () => {

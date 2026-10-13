@@ -12,9 +12,8 @@ public sealed class CreateAppointmentRequest : IValidatableObject
 
     public DateTime ScheduledAtUtc { get; init; }
 
-    [Required(ErrorMessage = "Service type is required.")]
-    [StringLength(100, ErrorMessage = "Service type cannot exceed 100 characters.")]
-    public string ServiceType { get; init; } = string.Empty;
+    [Required, MinLength(1, ErrorMessage = "Choose at least one service.")]
+    public int[] ServiceIds { get; init; } = [];
 
     [StringLength(500, ErrorMessage = "Notes cannot exceed 500 characters.")]
     public string? Notes { get; init; }

@@ -173,7 +173,48 @@ export function validateVehicle(values, { currentYear = new Date().getUTCFullYea
   };
 }
 
-export const APPOINTMENT_STATUSES = Object.freeze(["Scheduled", "InProgress", "Completed", "Cancelled"]);
+export const APPOINTMENT_STATUSES = Object.freeze(["Requested", "Confirmed", "Rejected", "Scheduled", "InProgress", "Completed", "Cancelled"]);
+export const WORKSHOP_UTC_OFFSET_HOURS = 8;
+
+export function toWorkshopUtcIso(value) {
+  const input = String(value ?? "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(input)) return null;
+  const parsed = new Date(`${input}:00+08:00`);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return toWorkshopDateTimeInput(parsed.toISOString()) === input ? parsed.toISOString() : null;
+}
+
+export function toWorkshopDateTimeInput(utcValue) {
+  const parsed = new Date(utcValue);
+  if (Number.isNaN(parsed.getTime())) return "";
+  return new Date(parsed.getTime() + WORKSHOP_UTC_OFFSET_HOURS * 3600000).toISOString().slice(0, 16);
+}
+
+export function workshopMinutes(utcValue) {
+  const input = toWorkshopDateTimeInput(utcValue);
+  if (!input) return null;
+  return Number(input.slice(11, 13)) * 60 + Number(input.slice(14, 16));
+}
+
+export function appointmentEstimate(appointment, selectedIds, catalogue) {
+  const ids = Array.isArray(selectedIds) ? selectedIds.map(Number) : [];
+  const snapshots = appointment?.services ?? [];
+  const originalIds = snapshots.map((service) => Number(service.serviceId));
+  const unchanged = Boolean(appointment) && ids.length === originalIds.length
+    && ids.every((id) => originalIds.includes(id));
+  const items = ids.map((id) => {
+    const snapshot = unchanged ? snapshots.find((service) => Number(service.serviceId) === id) : null;
+    if (snapshot) return { id, name: snapshot.name, price: Number(snapshot.price), durationMinutes: Number(snapshot.durationMinutes) };
+    const current = catalogue.find((service) => Number(service.id) === id);
+    return current ? { id, name: current.name, price: Number(current.currentPrice), durationMinutes: Number(current.estimatedDurationMinutes) } : null;
+  }).filter(Boolean);
+  return {
+    items,
+    unchanged,
+    totalMinutes: items.reduce((sum, item) => sum + item.durationMinutes, 0),
+    totalPrice: items.reduce((sum, item) => sum + item.price, 0)
+  };
+}
 
 export function toUtcIso(localValue) {
   const value = String(localValue ?? "").trim();
@@ -192,21 +233,33 @@ export function toLocalDateTimeInput(utcValue) {
 export function validateAppointment(values, { now = new Date(), includeStatus = false } = {}) {
   const customerId = Number(values?.customerId);
   const vehicleId = Number(values?.vehicleId);
-  const scheduledAtUtc = toUtcIso(values?.scheduledAtLocal ?? values?.scheduledAtUtc);
-  const serviceType = String(values?.serviceType ?? "").trim();
+  const scheduledAtUtc = values?.scheduledAtLocal !== undefined
+    ? toWorkshopUtcIso(values.scheduledAtLocal)
+    : toUtcIso(values?.scheduledAtUtc);
+  const serviceIds = Array.isArray(values?.serviceIds) ? values.serviceIds.map(Number) : [];
+  const totalMinutes = Number(values?.totalMinutes ?? 0);
   const notesText = String(values?.notes ?? "").trim();
-  const status = String(values?.status ?? "Scheduled");
+  const status = String(values?.status ?? "Requested");
   const errors = {};
 
   if (!Number.isInteger(customerId) || customerId <= 0) errors.customerId = "Choose a customer.";
   if (!Number.isInteger(vehicleId) || vehicleId <= 0) errors.vehicleId = "Choose one of the customer's vehicles.";
   if (!scheduledAtUtc) errors.scheduledAtUtc = "Choose a valid appointment date and time.";
-  if (!serviceType) errors.serviceType = "Enter the service required.";
-  else if (serviceType.length > 100) errors.serviceType = "Service type must be 100 characters or fewer.";
+  if (serviceIds.length === 0 || serviceIds.some((id) => !Number.isInteger(id) || id <= 0) || new Set(serviceIds).size !== serviceIds.length) {
+    errors.serviceIds = "Choose at least one available service.";
+  }
   if (notesText.length > 500) errors.notes = "Notes must be 500 characters or fewer.";
   if (includeStatus && !APPOINTMENT_STATUSES.includes(status)) errors.status = "Choose a valid appointment status.";
-  if (scheduledAtUtc && status === "Scheduled" && Date.parse(scheduledAtUtc) <= now.getTime()) {
-    errors.scheduledAtUtc = "Scheduled appointments must be in the future.";
+  if (scheduledAtUtc && Date.parse(scheduledAtUtc) <= now.getTime() && ["Requested", "Confirmed", "Scheduled"].includes(status)) {
+    errors.scheduledAtUtc = "Choose a future workshop time.";
+  }
+  if (scheduledAtUtc) {
+    const minute = workshopMinutes(scheduledAtUtc);
+    if (minute < 8 * 60 + 30 || minute >= 17 * 60 + 30 || minute % 30 !== 0) {
+      errors.scheduledAtUtc = "Choose a 30-minute start between 8:30 AM and 5:00 PM (MYT).";
+    } else if (totalMinutes > 0 && minute + totalMinutes > 17 * 60 + 30) {
+      errors.scheduledAtUtc = "The selected services must finish by 5:30 PM (MYT).";
+    }
   }
 
   return {
@@ -214,7 +267,7 @@ export function validateAppointment(values, { now = new Date(), includeStatus = 
       customerId,
       vehicleId,
       scheduledAtUtc,
-      serviceType,
+      serviceIds,
       notes: notesText || null,
       ...(includeStatus ? { status } : {})
     },
@@ -235,6 +288,11 @@ const FIELD_NAMES = {
   mileage: "mileage",
   isactive: "isActive",
   scheduledatutc: "scheduledAtUtc",
+  serviceids: "serviceIds",
+  name: "name",
+  description: "description",
+  currentprice: "currentPrice",
+  estimateddurationminutes: "estimatedDurationMinutes",
   servicetype: "serviceType",
   vehicleid: "vehicleId",
   notes: "notes",
@@ -354,6 +412,9 @@ export function createApiClient(
     },
     getAppointment: (id, { signal } = {}) => request(`/api/appointments/${id}`, { signal }),
     addAppointment: (appointment, { signal } = {}) => request("/api/appointments", { method: "POST", body: appointment, signal }),
-    updateAppointment: (id, appointment, { signal } = {}) => request(`/api/appointments/${id}`, { method: "PUT", body: appointment, signal })
+    updateAppointment: (id, appointment, { signal } = {}) => request(`/api/appointments/${id}`, { method: "PUT", body: appointment, signal }),
+    getServices: ({ signal } = {}) => request("/api/services", { signal }),
+    addService: (service, { signal } = {}) => request("/api/services", { method: "POST", body: service, signal }),
+    updateService: (id, service, { signal } = {}) => request(`/api/services/${id}`, { method: "PUT", body: service, signal })
   });
 }

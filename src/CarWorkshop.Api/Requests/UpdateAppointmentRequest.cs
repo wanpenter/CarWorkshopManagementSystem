@@ -12,17 +12,16 @@ public sealed class UpdateAppointmentRequest : IValidatableObject
 
     public DateTime ScheduledAtUtc { get; init; }
 
-    [Required(ErrorMessage = "Service type is required.")]
-    [StringLength(100, ErrorMessage = "Service type cannot exceed 100 characters.")]
-    public string ServiceType { get; init; } = string.Empty;
+    [Required, MinLength(1, ErrorMessage = "Choose at least one service.")]
+    public int[] ServiceIds { get; init; } = [];
 
     [StringLength(500, ErrorMessage = "Notes cannot exceed 500 characters.")]
     public string? Notes { get; init; }
 
     [Required(ErrorMessage = "Status is required.")]
     [RegularExpression(
-        "^(Scheduled|InProgress|Completed|Cancelled)$",
-        ErrorMessage = "Status must be Scheduled, InProgress, Completed, or Cancelled.")]
+        "^(Requested|Confirmed|Rejected|Scheduled|InProgress|Completed|Cancelled)$",
+        ErrorMessage = "Status is invalid.")]
     public string Status { get; init; } = string.Empty;
 
     public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)

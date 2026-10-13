@@ -37,6 +37,10 @@ public sealed class Appointment
 
     public DateTime ScheduledAtUtc { get; private set; }
 
+    public DateTime? EstimatedEndUtc { get; private set; }
+
+    public ICollection<AppointmentService> Services { get; private set; } = new List<AppointmentService>();
+
     public string ServiceType { get; private set; } = string.Empty;
 
     public string? Notes { get; private set; }
@@ -62,6 +66,79 @@ public sealed class Appointment
             notes,
             createdAtUtc,
             nowUtc);
+    }
+
+    public static Appointment CreateBooking(
+        int customerId,
+        int vehicleId,
+        DateTime scheduledAtUtc,
+        IReadOnlyList<Service> services,
+        string? notes,
+        DateTime nowUtc)
+    {
+        if (services.Count == 0)
+            throw new ArgumentException("Choose at least one service.", nameof(services));
+        if (services.Any(service => !service.IsActive))
+            throw new ArgumentException("Inactive services cannot be booked.", nameof(services));
+
+        var appointment = new Appointment(
+            customerId, vehicleId, scheduledAtUtc, services[0].Name, notes, nowUtc, nowUtc);
+        appointment.Status = AppointmentStatus.Requested;
+        appointment.SetServices(services);
+        return appointment;
+    }
+
+    public void UpdateBooking(
+        int customerId,
+        int vehicleId,
+        DateTime scheduledAtUtc,
+        IReadOnlyList<Service> services,
+        string? notes,
+        AppointmentStatus status,
+        DateTime nowUtc)
+    {
+        if (Status is AppointmentStatus.Completed or AppointmentStatus.Cancelled or AppointmentStatus.Rejected)
+            throw new InvalidOperationException($"A {Status} appointment can no longer be changed.");
+        if (!CanTransition(Status, status))
+            throw new InvalidOperationException($"Appointment status cannot change from {Status} to {status}.");
+        if (services.Count == 0)
+            throw new ArgumentException("Choose at least one service.", nameof(services));
+        ValidateIds(customerId, vehicleId);
+        var nextTime = EnsureUtc(scheduledAtUtc, nameof(scheduledAtUtc));
+        var servicesUnchanged = Services.Count == services.Count &&
+            Services.Select(item => item.ServiceId).Order().SequenceEqual(
+                services.Select(service => service.Id).Order());
+        if (!servicesUnchanged && services.Any(service => !service.IsActive))
+            throw new ArgumentException("Inactive services cannot be added to a booking.", nameof(services));
+        var rescheduled = nextTime != ScheduledAtUtc;
+        if ((rescheduled || status is AppointmentStatus.Requested or AppointmentStatus.Confirmed or AppointmentStatus.Scheduled)
+            && nextTime <= EnsureUtc(nowUtc, nameof(nowUtc)))
+            throw new ArgumentOutOfRangeException(nameof(scheduledAtUtc), "Scheduled time must be in the future.");
+        CustomerId = customerId;
+        VehicleId = vehicleId;
+        ScheduledAtUtc = nextTime;
+        Notes = OptionalTrimmed(notes, 500, nameof(notes));
+        Status = status;
+        if (!servicesUnchanged)
+        {
+            ServiceType = services[0].Name;
+            SetServices(services);
+        }
+        else if (rescheduled)
+        {
+            EstimatedEndUtc = nextTime.AddMinutes(Services.Sum(item => item.DurationMinutes));
+        }
+    }
+
+    private void SetServices(IReadOnlyList<Service> services)
+    {
+        var duration = services.Sum(service => service.EstimatedDurationMinutes);
+        if (duration < 1 || duration > 540)
+            throw new ArgumentException("Total service duration must fit within one working day.", nameof(services));
+        Services.Clear();
+        foreach (var service in services)
+            Services.Add(new AppointmentService(service));
+        EstimatedEndUtc = ScheduledAtUtc.AddMinutes(duration);
     }
 
     public void Update(
@@ -128,6 +205,11 @@ public sealed class Appointment
                 or AppointmentStatus.Cancelled,
             AppointmentStatus.Completed => next == AppointmentStatus.Completed,
             AppointmentStatus.Cancelled => next == AppointmentStatus.Cancelled,
+            AppointmentStatus.Requested => next is AppointmentStatus.Requested
+                or AppointmentStatus.Confirmed or AppointmentStatus.Rejected or AppointmentStatus.Cancelled,
+            AppointmentStatus.Confirmed => next is AppointmentStatus.Confirmed
+                or AppointmentStatus.InProgress or AppointmentStatus.Cancelled,
+            AppointmentStatus.Rejected => next == AppointmentStatus.Rejected,
             _ => false
         };
     }

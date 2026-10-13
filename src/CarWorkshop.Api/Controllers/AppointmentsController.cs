@@ -10,9 +10,9 @@ namespace CarWorkshop.Api.Controllers;
 [Route("api/[controller]")]
 public sealed class AppointmentsController : ControllerBase
 {
-    private readonly AppointmentService _appointments;
+    private readonly CarWorkshop.Application.Services.AppointmentService _appointments;
 
-    public AppointmentsController(AppointmentService appointments)
+    public AppointmentsController(CarWorkshop.Application.Services.AppointmentService appointments)
     {
         _appointments = appointments;
     }
@@ -47,9 +47,9 @@ public sealed class AppointmentsController : ControllerBase
                 request.CustomerId,
                 request.VehicleId,
                 request.ScheduledAtUtc,
-                request.ServiceType,
+                request.ServiceIds,
                 request.Notes,
-                AppointmentStatus.Scheduled),
+                AppointmentStatus.Requested),
             cancellationToken);
 
         return CreatedAtAction(nameof(GetById), new { id = appointment.Id }, appointment);
@@ -67,7 +67,7 @@ public sealed class AppointmentsController : ControllerBase
                 request.CustomerId,
                 request.VehicleId,
                 request.ScheduledAtUtc,
-                request.ServiceType,
+                request.ServiceIds,
                 request.Notes,
                 ParseRequiredStatus(request.Status)),
             cancellationToken));
@@ -89,7 +89,7 @@ public sealed class AppointmentsController : ControllerBase
             !Enum.IsDefined(status))
         {
             throw new ArgumentException(
-                "Status must be Scheduled, InProgress, Completed, or Cancelled.",
+                "Status is invalid.",
                 "status");
         }
 

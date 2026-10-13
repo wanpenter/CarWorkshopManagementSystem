@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   APPOINTMENT_STATUSES,
+  appointmentEstimate,
   getProblemFieldErrors,
-  toLocalDateTimeInput,
+  toWorkshopDateTimeInput,
+  toWorkshopUtcIso,
   validateAppointment
 } from "../api.js";
 import {
@@ -17,9 +19,18 @@ import {
 } from "./Shared.jsx";
 
 function nextAppointmentTime() {
-  const next = new Date();
-  next.setHours(next.getHours() + 1, 0, 0, 0);
-  return toLocalDateTimeInput(next);
+  const next = new Date(Date.now() + 60 * 60 * 1000);
+  const workshop = toWorkshopDateTimeInput(next);
+  const [date, clock] = workshop.split("T");
+  const minutes = Number(clock.slice(0, 2)) * 60 + Number(clock.slice(3));
+  const rounded = Math.ceil(minutes / 30) * 30;
+  if (rounded >= 17 * 60 + 30) {
+    const tomorrow = new Date(`${date}T08:30:00+08:00`);
+    tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
+    return toWorkshopDateTimeInput(tomorrow);
+  }
+  if (rounded < 8 * 60 + 30) return `${date}T08:30`;
+  return `${date}T${String(Math.floor(rounded / 60)).padStart(2, "0")}:${String(rounded % 60).padStart(2, "0")}`;
 }
 
 function makeBlankAppointment(customerId = "") {
@@ -27,13 +38,16 @@ function makeBlankAppointment(customerId = "") {
     customerId: String(customerId),
     vehicleId: "",
     scheduledAtLocal: nextAppointmentTime(),
-    serviceType: "",
+    serviceIds: [],
     notes: "",
-    status: "Scheduled"
+    status: "Requested"
   };
 }
 
 const statusLabels = {
+  Requested: "Needs review",
+  Confirmed: "Confirmed",
+  Rejected: "Rejected",
   Scheduled: "Scheduled",
   InProgress: "In progress",
   Completed: "Completed",
@@ -41,6 +55,9 @@ const statusLabels = {
 };
 
 const statusClasses = {
+  Requested: "text-rust-dark",
+  Confirmed: "text-success",
+  Rejected: "text-danger",
   Scheduled: "text-rust-dark",
   InProgress: "text-focus",
   Completed: "text-success",
@@ -52,9 +69,15 @@ function formatAppointmentTime(value) {
   if (Number.isNaN(date.getTime())) return "Date unavailable";
   return new Intl.DateTimeFormat("en-MY", {
     dateStyle: "medium",
-    timeStyle: "short"
+    timeStyle: "short",
+    timeZone: "Asia/Kuala_Lumpur"
   }).format(date);
 }
+
+const money = (value) => new Intl.NumberFormat("en-MY", { style: "currency", currency: "MYR" }).format(Number(value) || 0);
+const bookedServices = (appointment) => appointment.services?.length
+  ? appointment.services.map((service) => service.name).join(", ")
+  : appointment.serviceType || "Service unavailable";
 
 export default function AppointmentsSection({
   active,
@@ -63,12 +86,14 @@ export default function AppointmentsSection({
   customers,
   vehicles,
   appointments,
+  services,
   busy,
   onOpenSettings,
   onRetry,
   onSave,
   onAddCustomer,
-  onAddVehicle
+  onAddVehicle,
+  onAddService
 }) {
   const [search, setSearch] = useState("");
   const [customerFilter, setCustomerFilter] = useState("");
@@ -80,11 +105,24 @@ export default function AppointmentsSection({
   const vehicleRef = useRef(null);
   const dateRef = useRef(null);
   const serviceRef = useRef(null);
-
   const selectedAppointment = useMemo(
     () => appointments.find((appointment) => Number(appointment.id) === selectedId) ?? null,
     [appointments, selectedId]
   );
+  const activeServices = useMemo(() => services.filter((service) => service.isActive), [services]);
+  const estimate = useMemo(() => appointmentEstimate(selectedAppointment, form.serviceIds, services), [selectedAppointment, form.serviceIds, services]);
+  const { totalMinutes, totalPrice } = estimate;
+  const displayedServices = useMemo(() => {
+    const catalogueIds = new Set(services.map((service) => Number(service.id)));
+    const historical = (selectedAppointment?.services ?? [])
+      .filter((service) => form.serviceIds.includes(Number(service.serviceId)) && !catalogueIds.has(Number(service.serviceId)))
+      .map((service) => ({ id: service.serviceId, name: service.name, currentPrice: service.price, estimatedDurationMinutes: service.durationMinutes, isActive: false }));
+    return [...services.filter((service) => service.isActive || form.serviceIds.includes(Number(service.id))), ...historical];
+  }, [form.serviceIds, selectedAppointment, services]);
+  const appointmentStart = toWorkshopUtcIso(form.scheduledAtLocal);
+  const estimatedEnd = appointmentStart && totalMinutes
+    ? new Date(Date.parse(appointmentStart) + totalMinutes * 60000)
+    : null;
 
   const visibleAppointments = useMemo(() => {
     const query = search.trim().toLocaleLowerCase();
@@ -92,7 +130,7 @@ export default function AppointmentsSection({
       if (customerFilter && Number(appointment.customerId) !== Number(customerFilter)) return false;
       if (statusFilter && appointment.status !== statusFilter) return false;
       if (!query) return true;
-      return `${appointment.customerName ?? ""} ${appointment.registrationNumber ?? ""} ${appointment.vehicleName ?? ""} ${appointment.serviceType ?? ""} ${appointment.notes ?? ""}`
+      return `${appointment.customerName ?? ""} ${appointment.registrationNumber ?? ""} ${appointment.vehicleName ?? ""} ${bookedServices(appointment)} ${appointment.notes ?? ""}`
         .toLocaleLowerCase()
         .includes(query);
     });
@@ -117,8 +155,12 @@ export default function AppointmentsSection({
   }, [form.customerId, form.vehicleId, selectedAppointment, vehicles]);
 
   const availableStatuses = useMemo(() => {
-    if (!selectedAppointment || selectedAppointment.status === "Scheduled") {
-      return ["Scheduled", "InProgress", "Cancelled"];
+    if (!selectedAppointment) return ["Requested"];
+    if (selectedAppointment.status === "Requested") {
+      return ["Requested", "Confirmed", "Rejected", "Cancelled"];
+    }
+    if (selectedAppointment.status === "Confirmed" || selectedAppointment.status === "Scheduled") {
+      return [selectedAppointment.status, "InProgress", "Cancelled"];
     }
     if (selectedAppointment.status === "InProgress") {
       return ["InProgress", "Completed", "Cancelled"];
@@ -126,7 +168,8 @@ export default function AppointmentsSection({
     return [selectedAppointment.status];
   }, [selectedAppointment]);
 
-  const terminalAppointment = selectedAppointment?.status === "Completed" || selectedAppointment?.status === "Cancelled";
+  const legacyWithoutServices = selectedAppointment && !selectedAppointment.services?.length;
+  const terminalAppointment = ["Completed", "Cancelled", "Rejected"].includes(selectedAppointment?.status) || Boolean(legacyWithoutServices);
 
   useEffect(() => {
     if (selectedId !== null && !appointments.some((appointment) => Number(appointment.id) === selectedId)) {
@@ -159,6 +202,7 @@ export default function AppointmentsSection({
       [field]: undefined,
       ...(field === "customerId" ? { vehicleId: undefined } : {}),
       ...(field === "scheduledAtLocal" ? { scheduledAtUtc: undefined } : {}),
+      ...(field === "serviceIds" ? { serviceIds: undefined } : {}),
       form: undefined
     }));
   }
@@ -187,10 +231,10 @@ export default function AppointmentsSection({
     setForm({
       customerId: String(appointment.customerId ?? ""),
       vehicleId: String(appointment.vehicleId ?? ""),
-      scheduledAtLocal: toLocalDateTimeInput(appointment.scheduledAtUtc),
-      serviceType: String(appointment.serviceType ?? ""),
+      scheduledAtLocal: toWorkshopDateTimeInput(appointment.scheduledAtUtc),
+      serviceIds: appointment.services?.map((service) => Number(service.serviceId)) ?? [],
       notes: String(appointment.notes ?? ""),
-      status: APPOINTMENT_STATUSES.includes(appointment.status) ? appointment.status : "Scheduled"
+      status: APPOINTMENT_STATUSES.includes(appointment.status) ? appointment.status : "Requested"
     });
     setErrors({});
     window.requestAnimationFrame(() => customerRef.current?.focus({ preventScroll: true }));
@@ -205,7 +249,7 @@ export default function AppointmentsSection({
       ...form,
       scheduledAtLocal: typeof dateControl?.value === "string" ? dateControl.value : form.scheduledAtLocal
     };
-    const validation = validateAppointment(submittedForm, { includeStatus: editing });
+    const validation = validateAppointment({ ...submittedForm, totalMinutes }, { includeStatus: editing });
     if (!validation.valid) {
       setErrors(validation.errors);
       focusFirstError(validation.errors);
@@ -224,7 +268,7 @@ export default function AppointmentsSection({
     }
   }
 
-  const noBookingFoundation = connectionStatus === "ready" && (customers.length === 0 || vehicles.length === 0);
+  const noBookingFoundation = connectionStatus === "ready" && (customers.length === 0 || vehicles.length === 0 || (activeServices.length === 0 && selectedId === null));
 
   return (
     <section hidden={!active} aria-labelledby="appointments-title">
@@ -233,7 +277,7 @@ export default function AppointmentsSection({
           <div className="mb-8 flex items-end justify-between gap-6 max-mid:flex-col max-mid:items-start">
             <div>
               <h1 id="appointments-title" className="page-title">Appointments</h1>
-              <p className="mt-3 max-w-[65ch] text-ink-soft">Book workshop visits, track service progress, and keep the original customer attached to each booking.</p>
+              <p className="mt-3 max-w-[65ch] text-ink-soft">Book workshop visits with service estimates. New requests wait for staff review.</p>
             </div>
             <button className="button button-secondary shrink-0 max-[500px]:w-full" type="button" disabled={busy || connectionStatus !== "ready"} onClick={() => void onRetry()}>
               {connectionStatus === "loading" ? "Loading..." : "Reload records"}
@@ -267,6 +311,7 @@ export default function AppointmentsSection({
             customers={customers}
             vehicles={vehicles}
             appointments={appointments}
+            services={services}
             visibleAppointments={visibleAppointments}
             hasFilters={Boolean(search || customerFilter || statusFilter)}
             selectedId={selectedId}
@@ -276,6 +321,7 @@ export default function AppointmentsSection({
             onAdd={() => resetEditor({ focus: true })}
             onAddCustomer={onAddCustomer}
             onAddVehicle={onAddVehicle}
+            onAddService={onAddService}
             onClearFilters={() => { setSearch(""); setCustomerFilter(""); setStatusFilter(""); }}
             onEdit={beginEdit}
           />
@@ -287,9 +333,13 @@ export default function AppointmentsSection({
               <StatePanel title="Add a customer first" body="An appointment needs a customer and one of their registered vehicles.">
                 <button className="button button-primary" type="button" onClick={onAddCustomer}>Go to customers</button>
               </StatePanel>
-            ) : (
+            ) : vehicles.length === 0 ? (
               <StatePanel title="Register a vehicle first" body="Add a vehicle to a customer before booking their workshop visit.">
                 <button className="button button-primary" type="button" onClick={onAddVehicle}>Go to vehicles</button>
+              </StatePanel>
+            ) : (
+              <StatePanel title="Add a service first" body="Bookings need at least one active service with a price and estimated duration.">
+                <button className="button button-primary" type="button" onClick={onAddService}>Go to services</button>
               </StatePanel>
             )
           ) : (
@@ -300,8 +350,10 @@ export default function AppointmentsSection({
                   {selectedId === null
                     ? "Choose the customer first to see only their vehicles."
                     : terminalAppointment
-                      ? `This ${statusLabels[selectedAppointment.status].toLocaleLowerCase()} appointment is kept as read-only workshop history.`
-                      : "Update the schedule, service details, or progress status."}
+                      ? legacyWithoutServices
+                        ? "This earlier booking has no catalogue service snapshot, so its original details are shown as read-only history."
+                        : `This ${statusLabels[selectedAppointment.status].toLocaleLowerCase()} appointment is kept as read-only workshop history.`
+                      : "Update the booking or choose a new review status."}
                 </p>
               </div>
               <form onSubmit={submitAppointment} noValidate>
@@ -318,18 +370,30 @@ export default function AppointmentsSection({
                       return <option key={vehicle.id} value={vehicle.id}>{label}</option>;
                     })}
                   </SelectField>
-                  <TextField ref={dateRef} id="scheduledAtLocal" label="Date and time" value={form.scheduledAtLocal} type="datetime-local" error={errors.scheduledAtLocal || errors.scheduledAtUtc} help="Shown in your local time" onChange={updateField} />
-                  <TextField ref={serviceRef} id="serviceType" label="Service required" value={form.serviceType} maxLength={100} error={errors.serviceType} help="Required, up to 100 characters" onChange={updateField} />
+                  <TextField ref={dateRef} id="scheduledAtLocal" label="Date and time (MYT)" value={form.scheduledAtLocal} type="datetime-local" error={errors.scheduledAtLocal || errors.scheduledAtUtc} help="Workshop hours 8:30 AM–5:30 PM. Starts every 30 minutes." onChange={updateField} />
+                  <fieldset className="mb-5 min-w-0 border-0 p-0" aria-describedby={errors.serviceIds ? "serviceIds-error" : undefined}>
+                    <legend className="mb-2 font-bold">Services required</legend>
+                    <div ref={serviceRef} tabIndex={-1} className="grid gap-2">
+                      {displayedServices.map((service) => {
+                        const displayed = estimate.unchanged ? estimate.items.find((item) => item.id === Number(service.id)) : null;
+                        return <label key={service.id} className="service-choice">
+                        <input type="checkbox" className="size-5 shrink-0 accent-rust" checked={form.serviceIds.includes(Number(service.id))} disabled={!service.isActive && !form.serviceIds.includes(Number(service.id))} onChange={(event) => updateField("serviceIds", event.target.checked ? [...form.serviceIds, Number(service.id)] : form.serviceIds.filter((id) => id !== Number(service.id)))} />
+                        <span className="min-w-0"><strong className="block">{displayed?.name ?? service.name}{!service.isActive ? " (inactive)" : ""}</strong><span className="text-sm text-ink-soft">{displayed?.durationMinutes ?? service.estimatedDurationMinutes} min · {money(displayed?.price ?? service.currentPrice)}</span></span>
+                      </label>})}
+                    </div>
+                    {errors.serviceIds && <p id="serviceIds-error" className="mt-2 text-sm font-semibold text-danger" role="alert">{errors.serviceIds}</p>}
+                  </fieldset>
+                  <div className="mb-5 border-y border-paper-line py-3 text-sm" aria-live="polite"><span className="font-bold">{estimate.unchanged ? "Booked estimate" : "Current estimate"}</span><span className="ml-2">{totalMinutes} min · {money(totalPrice)}</span>{estimatedEnd && <span className="mt-1 block text-ink-soft">Expected finish: {formatAppointmentTime(estimatedEnd.toISOString())} MYT</span>}</div>
                   <TextAreaField id="notes" label="Notes (optional)" value={form.notes} maxLength={500} error={errors.notes} help="Up to 500 characters" onChange={updateField} />
                   {selectedId !== null && (
-                    <SelectField id="status" label="Status" value={form.status} error={errors.status} help="Cancel a booking by changing its status to Cancelled." onChange={updateField}>
+                    <SelectField id="status" label="Status" value={form.status} error={errors.status} help={form.status === "Requested" ? "Staff can confirm or reject this request." : "Changes are checked by the API."} onChange={updateField}>
                       {availableStatuses.map((value) => <option key={value} value={value}>{statusLabels[value]}</option>)}
                     </SelectField>
                   )}
                   <FormError message={errors.form} />
                   {!terminalAppointment && (
                     <div className="form-actions">
-                      <button className="button button-primary" type="submit">{busy ? "Saving..." : selectedId === null ? "Book appointment" : "Save changes"}</button>
+                      <button className="button button-primary" type="submit">{busy ? "Saving..." : selectedId === null ? "Request booking" : "Save changes"}</button>
                       {selectedId !== null && <button className="button button-quiet" type="button" onClick={() => resetEditor()}>Cancel edit</button>}
                     </div>
                   )}
@@ -346,7 +410,7 @@ export default function AppointmentsSection({
 }
 
 function AppointmentRecords(props) {
-  const { connectionStatus, errorMessage, customers, vehicles, appointments, visibleAppointments, hasFilters, selectedId, busy, onOpenSettings, onRetry, onAdd, onAddCustomer, onAddVehicle, onClearFilters, onEdit } = props;
+  const { connectionStatus, errorMessage, customers, vehicles, services, appointments, visibleAppointments, hasFilters, selectedId, busy, onOpenSettings, onRetry, onAdd, onAddCustomer, onAddVehicle, onAddService, onClearFilters, onEdit } = props;
   if (connectionStatus === "disconnected") {
     return <StatePanel title="Connect your workshop API" body="Add the backend address to load appointment records."><button className="button button-primary" type="button" onClick={onOpenSettings}>Set API address</button></StatePanel>;
   }
@@ -359,6 +423,9 @@ function AppointmentRecords(props) {
   }
   if (vehicles.length === 0) {
     return <StatePanel title="An appointment needs a vehicle" body="Register a vehicle to a customer before creating the first appointment."><button className="button button-primary" type="button" onClick={onAddVehicle}>Register first vehicle</button></StatePanel>;
+  }
+  if (services.every((service) => !service.isActive) && appointments.length === 0) {
+    return <StatePanel title="An appointment needs a service" body="Add and activate a workshop service before the first booking."><button className="button button-primary" type="button" onClick={onAddService}>Add first service</button></StatePanel>;
   }
   if (appointments.length === 0) {
     return <StatePanel title="No appointments booked yet" body="Book the first workshop visit and choose the service required."><button className="button button-primary" type="button" onClick={onAdd}>Book first appointment</button></StatePanel>;
@@ -378,7 +445,7 @@ function AppointmentRecords(props) {
                 <TableCell className="font-semibold whitespace-nowrap">{formatAppointmentTime(appointment.scheduledAtUtc)}</TableCell>
                 <TableCell>{appointment.customerName}</TableCell>
                 <TableCell><strong>{appointment.registrationNumber}</strong><span className="mt-0.5 block text-sm text-ink-soft">{appointment.vehicleName}</span></TableCell>
-                <TableCell className="max-w-70">{appointment.serviceType}<span className="mt-0.5 block text-sm text-ink-soft">{appointment.notes || "No notes"}</span></TableCell>
+                <TableCell className="max-w-70">{bookedServices(appointment)}<span className="mt-0.5 block text-sm text-ink-soft">{appointment.services?.length ? `${appointment.services.reduce((sum, service) => sum + Number(service.durationMinutes || 0), 0)} min · ${money(appointment.services.reduce((sum, service) => sum + Number(service.price || 0), 0))}` : "Legacy booking"}</span></TableCell>
                 <TableCell><span className={`status-text ${statusClasses[appointment.status] ?? "text-ink-soft"}`}>{statusLabels[appointment.status] ?? appointment.status}</span></TableCell>
                 <TableCell><AppointmentActions appointment={appointment} busy={busy} onEdit={onEdit} /></TableCell>
               </tr>
@@ -392,7 +459,7 @@ function AppointmentRecords(props) {
             <MobileDatum label="When"><strong>{formatAppointmentTime(appointment.scheduledAtUtc)}</strong></MobileDatum>
             <MobileDatum label="Customer">{appointment.customerName}</MobileDatum>
             <MobileDatum label="Vehicle">{appointment.registrationNumber} · {appointment.vehicleName}</MobileDatum>
-            <MobileDatum label="Service">{appointment.serviceType}</MobileDatum>
+            <MobileDatum label="Service">{bookedServices(appointment)}</MobileDatum>
             <MobileDatum label="Notes">{appointment.notes || "No notes"}</MobileDatum>
             <MobileDatum label="Status"><span className={statusClasses[appointment.status] ?? "text-ink-soft"}>{statusLabels[appointment.status] ?? appointment.status}</span></MobileDatum>
             <div className="mt-2 border-t border-paper-line pt-2"><AppointmentActions appointment={appointment} busy={busy} onEdit={onEdit} /></div>
@@ -406,7 +473,7 @@ function AppointmentRecords(props) {
 function AppointmentActions({ appointment, busy, onEdit }) {
   return (
     <div className="flex flex-wrap justify-end gap-2 max-desk:justify-start">
-      <button className="row-action" type="button" disabled={busy} onClick={() => onEdit(appointment)} aria-label={`Edit ${appointment.serviceType} appointment for ${appointment.customerName}`}>Edit</button>
+      <button className="row-action" type="button" disabled={busy} onClick={() => onEdit(appointment)} aria-label={`Edit ${bookedServices(appointment)} appointment for ${appointment.customerName}`}>Edit</button>
     </div>
   );
 }
