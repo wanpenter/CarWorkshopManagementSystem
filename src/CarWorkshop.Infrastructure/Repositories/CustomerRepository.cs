@@ -46,6 +46,13 @@ public sealed class CustomerRepository : ICustomerRepository
             cancellationToken);
     }
 
+    public Task<bool> HasAppointmentsAsync(int id, CancellationToken cancellationToken = default)
+    {
+        return _context.Appointments.AnyAsync(
+            appointment => appointment.CustomerId == id,
+            cancellationToken);
+    }
+
     public void Remove(Customer customer)
     {
         _context.Customers.Remove(customer);

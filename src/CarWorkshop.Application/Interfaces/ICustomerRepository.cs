@@ -10,6 +10,8 @@ public interface ICustomerRepository
 
     Task<bool> HasVehiclesAsync(int id, CancellationToken cancellationToken = default);
 
+    Task<bool> HasAppointmentsAsync(int id, CancellationToken cancellationToken = default);
+
     Task AddAsync(Customer customer, CancellationToken cancellationToken = default);
 
     void Remove(Customer customer);

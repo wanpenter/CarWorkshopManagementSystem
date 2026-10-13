@@ -55,6 +55,13 @@ public sealed class VehicleRepository : IVehicleRepository
             cancellationToken);
     }
 
+    public Task<bool> HasAppointmentsAsync(int id, CancellationToken cancellationToken = default)
+    {
+        return _context.Appointments.AnyAsync(
+            appointment => appointment.VehicleId == id,
+            cancellationToken);
+    }
+
     public Task AddAsync(Vehicle vehicle, CancellationToken cancellationToken = default)
     {
         return _context.Vehicles.AddAsync(vehicle, cancellationToken).AsTask();

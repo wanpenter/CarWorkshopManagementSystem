@@ -71,6 +71,12 @@ public sealed class CustomerService
                 "This customer cannot be deleted while vehicles are still linked to them.");
         }
 
+        if (await _customers.HasAppointmentsAsync(id, cancellationToken))
+        {
+            throw new ConflictException(
+                "This customer cannot be deleted while appointments are still linked to them.");
+        }
+
         _customers.Remove(customer);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
     }

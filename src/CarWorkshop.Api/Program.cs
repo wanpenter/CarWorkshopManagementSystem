@@ -15,7 +15,7 @@ var connectionString =
 builder.Services.AddDbContext<CarWorkshopDbContext>(options =>
     options.UseMySql(
         connectionString,
-        ServerVersion.AutoDetect(connectionString)
+        new MySqlServerVersion(new Version(8, 0, 46))
     ));
 
 // Add services to the container.
@@ -25,9 +25,11 @@ builder.Services.AddControllers();
 builder.Services.AddScoped<CarService>();
 builder.Services.AddScoped<ICustomerRepository, CustomerRepository>();
 builder.Services.AddScoped<IVehicleRepository, VehicleRepository>();
+builder.Services.AddScoped<IAppointmentRepository, AppointmentRepository>();
 builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
 builder.Services.AddScoped<CustomerService>();
 builder.Services.AddScoped<VehicleService>();
+builder.Services.AddScoped<AppointmentService>();
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.Configure<ApiBehaviorOptions>(options =>
 {

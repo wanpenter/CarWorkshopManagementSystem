@@ -7,6 +7,7 @@ import {
   validateApiBaseUrl
 } from "./api.js";
 import CustomersSection from "./components/CustomersSection.jsx";
+import AppointmentsSection from "./components/AppointmentsSection.jsx";
 import { DeleteDialog, SettingsDialog } from "./components/Dialogs.jsx";
 import { ConnectionStatus, Notice } from "./components/Shared.jsx";
 import VehiclesSection from "./components/VehiclesSection.jsx";
@@ -30,6 +31,7 @@ function App() {
   const [apiBaseUrl, setApiBaseUrl] = useState(initialConfig.url);
   const [customers, setCustomers] = useState([]);
   const [vehicles, setVehicles] = useState([]);
+  const [appointments, setAppointments] = useState([]);
   const [status, setStatus] = useState(apiBaseUrl ? "loading" : "disconnected");
   const [errorMessage, setErrorMessage] = useState("");
   const [activeTab, setActiveTab] = useState("customers");
@@ -88,16 +90,18 @@ function App() {
     }
 
     try {
-      const [customerResult, vehicleResult] = await Promise.all([
+      const [customerResult, vehicleResult, appointmentResult] = await Promise.all([
         api.getCustomers({ signal: controller.signal }),
-        api.getVehicles({ signal: controller.signal })
+        api.getVehicles({ signal: controller.signal }),
+        api.getAppointments({ signal: controller.signal })
       ]);
-      if (!Array.isArray(customerResult) || !Array.isArray(vehicleResult)) {
-        throw new Error("The API response did not contain customer and vehicle lists.");
+      if (!Array.isArray(customerResult) || !Array.isArray(vehicleResult) || !Array.isArray(appointmentResult)) {
+        throw new Error("The API response did not contain complete customer, vehicle, and appointment lists.");
       }
       if (!mountedRef.current || activeLoadRef.current.revision !== revision) return { ok: false, stale: true };
       setCustomers(customerResult);
       setVehicles(vehicleResult);
+      setAppointments(appointmentResult);
       setStatus("ready");
       setErrorMessage("");
       return { ok: true };
@@ -108,6 +112,7 @@ function App() {
       if (!quiet) {
         setCustomers([]);
         setVehicles([]);
+        setAppointments([]);
         setStatus("error");
         setErrorMessage(error.message);
       }
@@ -144,6 +149,18 @@ function App() {
       if (id === null) await api.addVehicle(values);
       else await api.updateVehicle(id, values);
       await refreshAfterWrite(id === null ? "Vehicle registered." : "Vehicle changes saved.");
+    } finally {
+      if (mountedRef.current) setMutating(false);
+    }
+  }
+
+  async function saveAppointment(id, values) {
+    if (!api || mutating) throw new Error("Another change is still in progress.");
+    setMutating(true);
+    try {
+      if (id === null) await api.addAppointment(values);
+      else await api.updateAppointment(id, values);
+      await refreshAfterWrite(id === null ? "Appointment booked." : "Appointment changes saved.");
     } finally {
       if (mountedRef.current) setMutating(false);
     }
@@ -222,6 +239,11 @@ function App() {
     window.requestAnimationFrame(() => document.getElementById("customers-nav")?.focus());
   }
 
+  function goToVehicles() {
+    setActiveTab("vehicles");
+    window.requestAnimationFrame(() => document.getElementById("vehicles-nav")?.focus());
+  }
+
   return (
     <>
       <a className="skip-link" href="#main-content">Skip to workshop records</a>
@@ -236,6 +258,7 @@ function App() {
       <nav className="section-nav" aria-label="Workshop records">
         <button id="customers-nav" className="section-tab" type="button" aria-current={activeTab === "customers" ? "page" : undefined} onClick={() => setActiveTab("customers")}>Customers <span className="tab-count">{customers.length}</span></button>
         <button id="vehicles-nav" className="section-tab" type="button" aria-current={activeTab === "vehicles" ? "page" : undefined} onClick={() => setActiveTab("vehicles")}>Vehicles <span className="tab-count">{vehicles.length}</span></button>
+        <button id="appointments-nav" className="section-tab" type="button" aria-current={activeTab === "appointments" ? "page" : undefined} onClick={() => setActiveTab("appointments")}>Appointments <span className="tab-count">{appointments.length}</span></button>
       </nav>
 
       <main id="main-content">
@@ -266,6 +289,20 @@ function App() {
           onSave={saveVehicle}
           onDelete={askToDelete}
           onAddCustomer={goToCustomers}
+        />
+        <AppointmentsSection
+          active={activeTab === "appointments"}
+          connectionStatus={status}
+          errorMessage={errorMessage}
+          customers={customers}
+          vehicles={vehicles}
+          appointments={appointments}
+          busy={busy}
+          onOpenSettings={openSettings}
+          onRetry={loadRecords}
+          onSave={saveAppointment}
+          onAddCustomer={goToCustomers}
+          onAddVehicle={goToVehicles}
         />
       </main>
 

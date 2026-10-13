@@ -107,6 +107,12 @@ public sealed class VehicleService
     public async Task DeleteAsync(int id, CancellationToken cancellationToken = default)
     {
         var vehicle = await FindVehicleAsync(id, cancellationToken);
+        if (await _vehicles.HasAppointmentsAsync(id, cancellationToken))
+        {
+            throw new ConflictException(
+                "This vehicle cannot be deleted while appointments are still linked to it.");
+        }
+
         _vehicles.Remove(vehicle);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
     }

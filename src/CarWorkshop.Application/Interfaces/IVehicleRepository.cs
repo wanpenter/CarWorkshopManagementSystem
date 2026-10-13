@@ -15,6 +15,8 @@ public interface IVehicleRepository
         int? excludingVehicleId = null,
         CancellationToken cancellationToken = default);
 
+    Task<bool> HasAppointmentsAsync(int id, CancellationToken cancellationToken = default);
+
     Task AddAsync(Vehicle vehicle, CancellationToken cancellationToken = default);
 
     void Remove(Vehicle vehicle);

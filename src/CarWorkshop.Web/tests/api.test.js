@@ -8,7 +8,10 @@ import {
   getProblemFieldErrors,
   resolveInitialApiBaseUrl,
   saveApiBaseUrl,
+  toLocalDateTimeInput,
+  toUtcIso,
   validateApiBaseUrl,
+  validateAppointment,
   validateCustomer,
   validateVehicle
 } from "../src/api.js";
@@ -89,6 +92,61 @@ test("vehicle validation rejects invalid owner, year, mileage, and registration"
   assert.match(invalid.errors.mileage, /0 or more/i);
 });
 
+test("appointment time helpers preserve the same minute through local and UTC values", () => {
+  const source = "2030-06-01T12:30:00.000Z";
+  assert.equal(toUtcIso(toLocalDateTimeInput(source)), source);
+  assert.equal(toUtcIso("not-a-date"), null);
+  assert.equal(toLocalDateTimeInput("not-a-date"), "");
+});
+
+test("appointment validation prepares a future create request without a status field", () => {
+  const result = validateAppointment({
+    customerId: "7",
+    vehicleId: "11",
+    scheduledAtLocal: "2030-06-01T12:30:00.000Z",
+    serviceType: " Regular service ",
+    notes: " "
+  }, { now: new Date("2030-05-01T00:00:00.000Z") });
+
+  assert.equal(result.valid, true);
+  assert.deepEqual(result.values, {
+    customerId: 7,
+    vehicleId: 11,
+    scheduledAtUtc: "2030-06-01T12:30:00.000Z",
+    serviceType: "Regular service",
+    notes: null
+  });
+  assert.equal("status" in result.values, false);
+});
+
+test("appointment validation enforces ownership choices, limits, and scheduled future time", () => {
+  const invalid = validateAppointment({
+    customerId: "",
+    vehicleId: "",
+    scheduledAtLocal: "2029-01-01T09:00:00.000Z",
+    serviceType: "x".repeat(101),
+    notes: "x".repeat(501),
+    status: "Scheduled"
+  }, { now: new Date("2030-01-01T00:00:00.000Z"), includeStatus: true });
+
+  assert.equal(invalid.valid, false);
+  assert.match(invalid.errors.customerId, /customer/i);
+  assert.match(invalid.errors.vehicleId, /vehicle/i);
+  assert.match(invalid.errors.scheduledAtUtc, /future/i);
+  assert.match(invalid.errors.serviceType, /100/);
+  assert.match(invalid.errors.notes, /500/);
+
+  const completed = validateAppointment({
+    customerId: "7",
+    vehicleId: "11",
+    scheduledAtLocal: "2029-01-01T09:00:00.000Z",
+    serviceType: "Inspection",
+    status: "Completed"
+  }, { now: new Date("2030-01-01T00:00:00.000Z"), includeStatus: true });
+  assert.equal(completed.valid, true);
+  assert.equal(completed.values.status, "Completed");
+});
+
 test("API client calls customer and vehicle routes with JSON writes and owner filtering", async () => {
   const calls = [];
   const client = createApiClient("http://localhost:5272/workshop/", {
@@ -109,6 +167,31 @@ test("API client calls customer and vehicle routes with JSON writes and owner fi
   assert.equal(calls[2].options.headers["Content-Type"], "application/json");
 });
 
+test("API client calls appointment filters and sends create and update payloads", async () => {
+  const calls = [];
+  const client = createApiClient("http://localhost:5272", {
+    fetchImpl: async (url, options) => {
+      calls.push({ url, options });
+      return new Response(JSON.stringify([]), { status: 200, headers: { "content-type": "application/json" } });
+    }
+  });
+  const createBody = { customerId: 7, vehicleId: 11, scheduledAtUtc: "2030-06-01T12:30:00.000Z", serviceType: "Service", notes: null };
+  const updateBody = { ...createBody, status: "InProgress" };
+
+  await client.getAppointments({ customerId: 7, status: "Scheduled" });
+  await client.getAppointment(22);
+  await client.addAppointment(createBody);
+  await client.updateAppointment(22, updateBody);
+
+  assert.equal(calls[0].url, "http://localhost:5272/api/appointments?customerId=7&status=Scheduled");
+  assert.equal(calls[1].url, "http://localhost:5272/api/appointments/22");
+  assert.equal(calls[2].options.method, "POST");
+  assert.deepEqual(JSON.parse(calls[2].options.body), createBody);
+  assert.equal("status" in JSON.parse(calls[2].options.body), false);
+  assert.equal(calls[3].options.method, "PUT");
+  assert.equal(JSON.parse(calls[3].options.body).status, "InProgress");
+});
+
 test("ProblemDetails field names map to React form fields", async () => {
   const client = createApiClient("http://localhost:5272", {
     fetchImpl: async () => new Response(JSON.stringify({
@@ -116,7 +199,8 @@ test("ProblemDetails field names map to React form fields", async () => {
       errors: {
         "request.FullName": ["Full name is required."],
         RegistrationNumber: ["Registration number already exists."],
-        CustomerId: ["Customer was not found."]
+        CustomerId: ["Customer was not found."],
+        ScheduledAtUtc: ["Scheduled appointments must be in the future."]
       }
     }), { status: 400, headers: { "content-type": "application/problem+json" } })
   });
@@ -126,7 +210,8 @@ test("ProblemDetails field names map to React form fields", async () => {
     assert.deepEqual(getProblemFieldErrors(error), {
       fullName: "Full name is required.",
       registrationNumber: "Registration number already exists.",
-      customerId: "Customer was not found."
+      customerId: "Customer was not found.",
+      scheduledAtUtc: "Scheduled appointments must be in the future."
     });
     return true;
   });

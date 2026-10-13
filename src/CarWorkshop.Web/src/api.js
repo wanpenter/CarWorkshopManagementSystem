@@ -161,6 +161,56 @@ export function validateVehicle(values, { currentYear = new Date().getUTCFullYea
   };
 }
 
+export const APPOINTMENT_STATUSES = Object.freeze(["Scheduled", "InProgress", "Completed", "Cancelled"]);
+
+export function toUtcIso(localValue) {
+  const value = String(localValue ?? "").trim();
+  if (!value) return null;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+}
+
+export function toLocalDateTimeInput(utcValue) {
+  const parsed = new Date(utcValue);
+  if (Number.isNaN(parsed.getTime())) return "";
+  const pad = (value) => String(value).padStart(2, "0");
+  return `${parsed.getFullYear()}-${pad(parsed.getMonth() + 1)}-${pad(parsed.getDate())}T${pad(parsed.getHours())}:${pad(parsed.getMinutes())}`;
+}
+
+export function validateAppointment(values, { now = new Date(), includeStatus = false } = {}) {
+  const customerId = Number(values?.customerId);
+  const vehicleId = Number(values?.vehicleId);
+  const scheduledAtUtc = toUtcIso(values?.scheduledAtLocal ?? values?.scheduledAtUtc);
+  const serviceType = String(values?.serviceType ?? "").trim();
+  const notesText = String(values?.notes ?? "").trim();
+  const status = String(values?.status ?? "Scheduled");
+  const errors = {};
+
+  if (!Number.isInteger(customerId) || customerId <= 0) errors.customerId = "Choose a customer.";
+  if (!Number.isInteger(vehicleId) || vehicleId <= 0) errors.vehicleId = "Choose one of the customer's vehicles.";
+  if (!scheduledAtUtc) errors.scheduledAtUtc = "Choose a valid appointment date and time.";
+  if (!serviceType) errors.serviceType = "Enter the service required.";
+  else if (serviceType.length > 100) errors.serviceType = "Service type must be 100 characters or fewer.";
+  if (notesText.length > 500) errors.notes = "Notes must be 500 characters or fewer.";
+  if (includeStatus && !APPOINTMENT_STATUSES.includes(status)) errors.status = "Choose a valid appointment status.";
+  if (scheduledAtUtc && status === "Scheduled" && Date.parse(scheduledAtUtc) <= now.getTime()) {
+    errors.scheduledAtUtc = "Scheduled appointments must be in the future.";
+  }
+
+  return {
+    values: {
+      customerId,
+      vehicleId,
+      scheduledAtUtc,
+      serviceType,
+      notes: notesText || null,
+      ...(includeStatus ? { status } : {})
+    },
+    errors,
+    valid: Object.keys(errors).length === 0
+  };
+}
+
 const FIELD_NAMES = {
   fullname: "fullName",
   phone: "phone",
@@ -171,7 +221,12 @@ const FIELD_NAMES = {
   model: "model",
   year: "year",
   mileage: "mileage",
-  isactive: "isActive"
+  isactive: "isActive",
+  scheduledatutc: "scheduledAtUtc",
+  servicetype: "serviceType",
+  vehicleid: "vehicleId",
+  notes: "notes",
+  status: "status"
 };
 
 export function getProblemFieldErrors(error) {
@@ -276,6 +331,17 @@ export function createApiClient(
     getVehicle: (id, { signal } = {}) => request(`/api/vehicles/${id}`, { signal }),
     addVehicle: (vehicle, { signal } = {}) => request("/api/vehicles", { method: "POST", body: vehicle, signal }),
     updateVehicle: (id, vehicle, { signal } = {}) => request(`/api/vehicles/${id}`, { method: "PUT", body: vehicle, signal }),
-    deleteVehicle: (id, { signal } = {}) => request(`/api/vehicles/${id}`, { method: "DELETE", signal })
+    deleteVehicle: (id, { signal } = {}) => request(`/api/vehicles/${id}`, { method: "DELETE", signal }),
+    getAppointments: ({ customerId, status, signal } = {}) => {
+      const params = new URLSearchParams();
+      if (customerId) params.set("customerId", customerId);
+      if (status) params.set("status", status);
+      const search = params.toString();
+      const query = search ? `?${search}` : "";
+      return request(`/api/appointments${query}`, { signal });
+    },
+    getAppointment: (id, { signal } = {}) => request(`/api/appointments/${id}`, { signal }),
+    addAppointment: (appointment, { signal } = {}) => request("/api/appointments", { method: "POST", body: appointment, signal }),
+    updateAppointment: (id, appointment, { signal } = {}) => request(`/api/appointments/${id}`, { method: "PUT", body: appointment, signal })
   });
 }

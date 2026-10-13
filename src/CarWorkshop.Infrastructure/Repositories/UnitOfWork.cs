@@ -27,6 +27,15 @@ public sealed class UnitOfWork : IUnitOfWork
         }
         catch (DbUpdateException exception) when (IsForeignKeyConstraintViolation(exception))
         {
+            var addedOrModifiedAppointment = _context.ChangeTracker.Entries<Appointment>()
+                .FirstOrDefault(entry => entry.State is EntityState.Added or EntityState.Modified);
+
+            if (addedOrModifiedAppointment is not null)
+            {
+                throw new ConflictException(
+                    "The appointment references a customer or vehicle that no longer exists.");
+            }
+
             var addedOrModifiedVehicle = _context.ChangeTracker.Entries<Vehicle>()
                 .FirstOrDefault(entry => entry.State is EntityState.Added or EntityState.Modified);
 
@@ -37,8 +46,17 @@ public sealed class UnitOfWork : IUnitOfWork
                     addedOrModifiedVehicle.Entity.CustomerId);
             }
 
+            var deletedVehicle = _context.ChangeTracker.Entries<Vehicle>()
+                .FirstOrDefault(entry => entry.State == EntityState.Deleted);
+
+            if (deletedVehicle is not null)
+            {
+                throw new ConflictException(
+                    "This vehicle cannot be deleted while appointments are still linked to it.");
+            }
+
             throw new ConflictException(
-                "This customer cannot be deleted while vehicles are still linked to them.");
+                "This customer cannot be deleted while vehicles or appointments are still linked to them.");
         }
     }
 

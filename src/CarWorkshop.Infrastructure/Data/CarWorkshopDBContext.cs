@@ -17,6 +17,8 @@ public class CarWorkshopDbContext : DbContext
 
     public DbSet<Vehicle> Vehicles { get; set; }
 
+    public DbSet<Appointment> Appointments { get; set; }
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);

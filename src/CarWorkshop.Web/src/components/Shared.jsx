@@ -76,6 +76,7 @@ export const TextField = forwardRef(function TextField({
         value={value}
         aria-invalid={error ? "true" : undefined}
         aria-describedby={describedBy}
+        onInput={type === "datetime-local" ? (event) => onChange(id, event.target.value) : undefined}
         onChange={(event) => onChange(id, event.target.value)}
       />
       {help && <p id={`${id}-help`} className="mt-1.5 text-[0.82rem] text-ink-soft">{help}</p>}
@@ -105,12 +106,13 @@ export function TextAreaField({ id, label, value, error, help, maxLength, onChan
   );
 }
 
-export function SelectField({ id, label, value, error, help, children, onChange }) {
+export const SelectField = forwardRef(function SelectField({ id, label, value, error, help, children, onChange }, ref) {
   const describedBy = [help ? `${id}-help` : null, error ? `${id}-error` : null].filter(Boolean).join(" ") || undefined;
   return (
     <div className="mb-5">
       <label className="mb-2 block font-bold" htmlFor={`${id}-input`}>{label}</label>
       <select
+        ref={ref}
         id={`${id}-input`}
         className="control-input"
         name={id}
@@ -125,7 +127,7 @@ export function SelectField({ id, label, value, error, help, children, onChange 
       {error && <p id={`${id}-error`} className="mt-1.5 text-sm font-semibold text-danger" role="alert">{error}</p>}
     </div>
   );
-}
+});
 
 export function TableHead({ children, className = "" }) {
   return <th className={`border-b border-paper-line px-3 py-4 text-left text-[0.79rem] font-bold tracking-[0.07em] text-ink-soft uppercase ${className}`}>{children}</th>;

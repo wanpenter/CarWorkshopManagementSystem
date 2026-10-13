@@ -170,6 +170,14 @@
     @apply grid-cols-[minmax(15rem,1fr)_minmax(13rem,20rem)] items-end max-[700px]:grid-cols-1;
   }
 
+  .appointment-filters {
+    @apply mb-6 grid grid-cols-[minmax(16rem,1fr)_minmax(11rem,17rem)_minmax(10rem,14rem)] items-end gap-4 border-y border-paper-line py-4 max-[900px]:grid-cols-2 max-[620px]:grid-cols-1;
+  }
+
+  .appointment-search {
+    @apply max-[900px]:col-span-2 max-[620px]:col-span-1;
+  }
+
   .form-actions {
     @apply flex flex-wrap gap-2 max-[500px]:[&>*]:w-full;
   }
@@ -227,6 +235,26 @@
     background:
       linear-gradient(180deg, var(--color-rust) 0 0.35rem, transparent 0.35rem),
       var(--color-paper);
+  }
+}
+
+@media (max-width: 31.25rem) {
+  .section-nav {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    padding-inline: 0.25rem;
+  }
+
+  .section-tab {
+    min-width: 0;
+    padding-inline: 0.25rem;
+    font-size: 0.875rem;
+  }
+
+  .tab-count {
+    display: block;
+    margin-left: 0;
+    font-size: 0.75rem;
   }
 }
 

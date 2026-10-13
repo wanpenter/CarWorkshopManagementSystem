@@ -22,6 +22,51 @@ namespace CarWorkshop.Infrastructure.Migrations
 
             MySqlModelBuilderExtensions.AutoIncrementColumns(modelBuilder);
 
+            modelBuilder.Entity("CarWorkshop.Domain.Entities.Appointment", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<int>("CustomerId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Notes")
+                        .HasMaxLength(500)
+                        .HasColumnType("varchar(500)");
+
+                    b.Property<DateTime>("ScheduledAtUtc")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("ServiceType")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("varchar(100)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("varchar(20)");
+
+                    b.Property<int>("VehicleId")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CustomerId");
+
+                    b.HasIndex("VehicleId");
+
+                    b.HasIndex("Status", "ScheduledAtUtc");
+
+                    b.ToTable("Appointments", (string)null);
+                });
+
             modelBuilder.Entity("CarWorkshop.Domain.Entities.Car", b =>
                 {
                     b.Property<int>("Id")
@@ -121,6 +166,25 @@ namespace CarWorkshop.Infrastructure.Migrations
                         .IsUnique();
 
                     b.ToTable("Vehicles", (string)null);
+                });
+
+            modelBuilder.Entity("CarWorkshop.Domain.Entities.Appointment", b =>
+                {
+                    b.HasOne("CarWorkshop.Domain.Entities.Customer", "Customer")
+                        .WithMany()
+                        .HasForeignKey("CustomerId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("CarWorkshop.Domain.Entities.Vehicle", "Vehicle")
+                        .WithMany()
+                        .HasForeignKey("VehicleId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Customer");
+
+                    b.Navigation("Vehicle");
                 });
 
             modelBuilder.Entity("CarWorkshop.Domain.Entities.Vehicle", b =>

@@ -1,6 +1,6 @@
 # Workshop frontend
 
-React + Tailwind CSS, built locally with Vite. The frontend calls the ASP.NET Core API, which stores customer and vehicle records in MySQL.
+React + Tailwind CSS, built locally with Vite. The frontend calls the ASP.NET Core API, which stores customer, vehicle, and appointment records in MySQL.
 
 From this directory:
 
@@ -23,13 +23,15 @@ The default API URL is http://localhost:5272. API settings stores an override in
 
 - `src/main.jsx`: React root with Strict Mode.
 - `src/App.jsx`: Connection state, coherent record loading, navigation, and mutation coordination.
-- `src/components`: Customer and vehicle workspaces, shared form controls, and native dialogs.
+- `src/components`: Customer, vehicle, and appointment workspaces, shared form controls, and native dialogs.
 - `src/api.js`: API client, request timeout, URL and input validation, and storage helpers.
 - `src/index.css`: Tailwind import, theme tokens, reusable controls, and global browser styles.
 
-Customer and vehicle CRUD, owner filtering, search, validation, delete confirmations, and API settings are implemented. Registration numbers are normalized before writing, and customer summaries are refreshed after vehicle changes so ownership counts stay current.
+Customer and vehicle CRUD, appointment booking and status updates, filtering, search, validation, delete confirmations, and API settings are implemented. Registration numbers are normalized before writing, and all three record lists refresh together after a change. Appointment times are entered in the browser's local time and sent to the API as UTC.
 
-The older `/api/cars` endpoint and its existing records remain in the backend for compatibility. This frontend uses `/api/customers` and `/api/vehicles`; it does not guess how legacy car rows should be assigned to customers. Authentication and appointment booking remain future modules, so the current backend should stay local.
+An appointment belongs to a booked customer and one of that customer's vehicles. The vehicle selector follows the selected customer. Existing appointments keep showing their original vehicle when that vehicle is later reassigned, so staff can still understand the historical booking. Appointments are cancelled through the `Cancelled` status; the frontend does not delete appointment history.
+
+The older `/api/cars` endpoint and its existing records remain in the backend for compatibility. This frontend uses `/api/customers`, `/api/vehicles`, and `/api/appointments`; it does not guess how legacy car rows should be assigned to customers. Authentication remains a future module, so the current backend should stay local.
 
 ## Verification
 

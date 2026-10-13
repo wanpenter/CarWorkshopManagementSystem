@@ -2,14 +2,19 @@
 
 Local development stack: React, Tailwind CSS, ASP.NET Core, Entity Framework Core, and MySQL.
 
-The Customer and Vehicle module is ready for local use. Staff can create and edit
-customers, register vehicles under an owner, change ownership, search and filter,
-and delete records. Each vehicle has a unique registration number. A customer with
-vehicles cannot be deleted until those vehicles are moved or removed.
+Staff can create and edit customers, register vehicles under an owner, change
+ownership, and search and filter records. Each vehicle has a unique registration
+number. A customer with vehicles cannot be deleted until those vehicles are moved
+or removed. Appointments link a customer and one of their vehicles to a scheduled
+service.
 
 ## Run locally
 
-Start MySQL with the database configured for `CarWorkshop.Api`. Apply migrations,
+Start MySQL with the database configured for `CarWorkshop.Api`. In Visual Studio,
+right-click `CarWorkshop.Api` and select **Manage User Secrets**. Set
+`ConnectionStrings:DefaultConnection` to your local MySQL connection string in
+the secrets editor. Keep the password out of `appsettings.json` and Git. The
+database account must have permission to apply migrations. Apply migrations,
 then open two terminals at the repository root.
 
 Database (on first setup and after pulling new migrations):
@@ -40,25 +45,31 @@ Open http://127.0.0.1:4173. The frontend calls http://localhost:5272 by default.
 | --- | --- |
 | `src/CarWorkshop.Web` | React components, Tailwind styling, browser state, API client |
 | `src/CarWorkshop.Api` | HTTP endpoints, input validation, dependency registration |
-| `src/CarWorkshop.Application` | Customer and vehicle use cases, contracts, and repository interfaces |
+| `src/CarWorkshop.Application` | Customer, vehicle, and appointment use cases, contracts, and repository interfaces |
 | `src/CarWorkshop.Domain` | Entities and core business rules |
 | `src/CarWorkshop.Infrastructure` | EF Core context, migrations, MySQL persistence |
 | `tests` | Backend unit and integration test projects |
 
-The browser calls the API. Customer and vehicle requests pass through the API,
+The browser calls the API. Customer, vehicle, and appointment requests pass through the API,
 Application, Domain, and Infrastructure layers before EF Core writes to MySQL.
 The older `/api/cars` endpoint remains for its existing Brand/Model records. Those
 rows lack an owner and registration number, so they are preserved separately and
 are not automatically converted into vehicles. The old `CarService` still lives
 in Api; new features use the layered structure.
 
-The new API routes are `/api/customers`, `/api/customers/{id}`,
+The API routes include `/api/customers`, `/api/customers/{id}`,
 `/api/customers/{id}/vehicles`, `/api/vehicles`, and `/api/vehicles/{id}`.
 `GET /api/vehicles?customerId={id}` filters vehicles by owner. Customer and
 vehicle writes use JSON. Validation returns HTTP 400, missing records 404,
 and duplicate registrations or protected customer deletion 409.
 
-Authentication, appointments, mechanic assignment, and service history are later
+Appointments use `/api/appointments` and `/api/appointments/{id}`. New bookings
+start as `Scheduled`; they can move to `InProgress`, then `Completed`, or be
+`Cancelled` before completion. The selected vehicle must belong to the selected
+customer. Appointment date and time are stored in UTC. Customers and vehicles
+linked to appointments are protected from deletion to preserve service records.
+
+Authentication, mechanic assignment, and service history are later
 modules. Run this unauthenticated version only in a trusted local environment.
 
 ## Verify
