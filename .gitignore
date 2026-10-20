@@ -485,3 +485,4 @@ $RECYCLE.BIN/
 
 # Local database backup artifacts
 .local-backups/
+.build-temp/

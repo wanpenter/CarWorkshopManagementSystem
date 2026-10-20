@@ -1,0 +1,73 @@
+name: Workshop checks
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend and MySQL integration tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: workshop-ci-only
+          MYSQL_ROOT_HOST: '%'
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping --host=127.0.0.1 --silent"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=30
+    env:
+      DOTNET_NOLOGO: 'true'
+      WORKSHOP_TEST_MYSQL: Server=127.0.0.1;Port=3306;User ID=root;Password=workshop-ci-only;SslMode=None;
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.0.x
+      - name: Restore
+        run: dotnet restore CarWorkshopManagementSystem.sln
+      - name: Build backend and tests
+        run: dotnet build CarWorkshopManagementSystem.sln --configuration Release --no-restore
+      - name: Run domain tests
+        run: dotnet test tests/CarWorkshop.UnitTests/CarWorkshop.UnitTests.csproj --configuration Release --no-build --logger trx --results-directory TestResults/unit
+      - name: Run booking API tests against MySQL
+        run: dotnet test tests/CarWorkshop.IntegrationTests/CarWorkshop.IntegrationTests.csproj --configuration Release --no-build --logger trx --results-directory TestResults/integration
+      - name: Save test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-test-reports
+          path: TestResults/**/*.trx
+          if-no-files-found: ignore
+
+  frontend:
+    name: Frontend tests and build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: src/CarWorkshop.Web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: src/CarWorkshop.Web/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - run: npm run build

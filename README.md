@@ -95,4 +95,11 @@ temporary customers and vehicles, checks the real database behavior, then remove
 only those test records. Its checks include a concurrent duplicate registration
 attempt and preservation of legacy `/api/cars` data.
 
+Automated booking API/database checks are in
+[`tests/CarWorkshop.IntegrationTests`](tests/CarWorkshop.IntegrationTests/README.md).
+They require `WORKSHOP_TEST_MYSQL` pointing to a dedicated MySQL test server and
+create their own temporary database. GitHub Actions runs the domain tests, real
+MySQL integration tests, frontend tests, and production builds on pushes and pull
+requests. Backend test reports are attached to each workflow run.
+
 Development CORS allows only the local frontend origins on port 4173. The current API has no authentication and is intended for local development. Its HTTPS profile requires a valid trusted developer certificate; the commands above use the HTTP development profile.
