@@ -27,7 +27,7 @@ or `-MySqlDirectory 'C:\path\to\mysql'` for another extracted MySQL installation
 For an already running dedicated test server:
 
 ```powershell
-$env:WORKSHOP_TEST_MYSQL = 'Server=127.0.0.1;Port=33307;User ID=root;Password=YOUR_TEST_PASSWORD;SslMode=None;'
+$env:WORKSHOP_TEST_MYSQL = 'Server=127.0.0.1;Port=33307;User ID=root;Password=YOUR_TEST_PASSWORD;SslMode=Required;'
 dotnet test tests/CarWorkshop.IntegrationTests/CarWorkshop.IntegrationTests.csproj --configuration Release -m:1
 Remove-Item Env:WORKSHOP_TEST_MYSQL
 ```

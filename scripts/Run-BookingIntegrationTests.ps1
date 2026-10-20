@@ -55,7 +55,7 @@ try {
     }
     if (-not $taskReady) { throw "MySQL did not become ready. Logs: $taskRunDirectory" }
 
-    $env:WORKSHOP_TEST_MYSQL = "Server=127.0.0.1;Port=$Port;User ID=root;Password=$taskPassword;SslMode=None;"
+    $env:WORKSHOP_TEST_MYSQL = "Server=127.0.0.1;Port=$Port;User ID=root;Password=$taskPassword;SslMode=Required;"
     & dotnet test tests/CarWorkshop.IntegrationTests/CarWorkshop.IntegrationTests.csproj --configuration Release -m:1 --logger trx --results-directory .build-temp/test-results/integration
     if ($LASTEXITCODE -ne 0) { throw 'Booking integration tests failed.' }
 }
