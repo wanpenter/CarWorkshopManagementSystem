@@ -39,6 +39,9 @@ namespace CarWorkshop.Infrastructure.Migrations
                     b.Property<DateTime?>("EstimatedEndUtc")
                         .HasColumnType("datetime(6)");
 
+                    b.Property<int?>("MechanicId")
+                        .HasColumnType("int");
+
                     b.Property<string>("Notes")
                         .HasMaxLength(500)
                         .HasColumnType("varchar(500)");
@@ -62,6 +65,8 @@ namespace CarWorkshop.Infrastructure.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("CustomerId");
+
+                    b.HasIndex("MechanicId");
 
                     b.HasIndex("VehicleId");
 
@@ -157,6 +162,35 @@ namespace CarWorkshop.Infrastructure.Migrations
                     b.ToTable("Customers", (string)null);
                 });
 
+            modelBuilder.Entity("CarWorkshop.Domain.Entities.Mechanic", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("FullName")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("varchar(100)");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("tinyint(1)");
+
+                    b.Property<string>("Phone")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("varchar(20)");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("Mechanics", (string)null);
+                });
+
             modelBuilder.Entity("CarWorkshop.Domain.Entities.Service", b =>
                 {
                     b.Property<int>("Id")
@@ -250,6 +284,11 @@ namespace CarWorkshop.Infrastructure.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
+                    b.HasOne("CarWorkshop.Domain.Entities.Mechanic", "Mechanic")
+                        .WithMany()
+                        .HasForeignKey("MechanicId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("CarWorkshop.Domain.Entities.Vehicle", "Vehicle")
                         .WithMany()
                         .HasForeignKey("VehicleId")
@@ -257,6 +296,8 @@ namespace CarWorkshop.Infrastructure.Migrations
                         .IsRequired();
 
                     b.Navigation("Customer");
+
+                    b.Navigation("Mechanic");
 
                     b.Navigation("Vehicle");
                 });

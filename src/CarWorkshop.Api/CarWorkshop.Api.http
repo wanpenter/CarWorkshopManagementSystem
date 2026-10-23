@@ -6,7 +6,7 @@ Content-Type: application/json
 
 {
     "brand": " Lamborghini ",
-    "model" :" Aventador "
+    "model" :" Kancilzilla "
 }
 
 ###
@@ -23,7 +23,7 @@ Accept: application/json
 ###
 //DELETE
 
-DELETE {{CarWorkshop.Api_HostAddress}}/api/cars/8
+DELETE {{CarWorkshop.Api_HostAddress}}/api/cars/14
 
 ###
 //Edit
@@ -35,3 +35,41 @@ Content-Type: application/json
   "brand": "  Honda   ",
   "model": "Civic Gm6"
 }
+###
+//CREATE MECHANIC
+POST {{CarWorkshop.Api_HostAddress}}/api/mechanics
+Content-Type: application/json
+
+{
+    "FullName": "Wandin",
+    "phone": "0198765432",
+    "isActive": true
+}
+
+###
+//LIST MECHANIC
+
+GET {{CarWorkshop.Api_HostAddress}}/api/mechanics
+
+###
+//UPDATE
+PUT {{CarWorkshop.Api_HostAddress}}/api/mechanics/2323
+Content-Type: application/json
+
+{
+  "fullName": "Abu Ahmad",
+  "phone": "0198765432",
+  "isActive": false
+}
+
+###
+# Replace both IDs with existing records; the appointment must be Confirmed or Scheduled.
+PUT {{CarWorkshop.Api_HostAddress}}/api/appointments/3/mechanic
+Content-Type: application/json
+
+{
+  "mechanicId": 1
+}
+
+###
+GET {{CarWorkshop.Api_HostAddress}}/api/appointments/1

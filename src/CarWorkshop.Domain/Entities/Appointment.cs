@@ -35,6 +35,10 @@ public sealed class Appointment
 
     public Vehicle Vehicle { get; private set; } = null!;
 
+    public int? MechanicId { get; private set; }
+
+    public Mechanic? Mechanic { get; private set; }
+
     public DateTime ScheduledAtUtc { get; private set; }
 
     public DateTime? EstimatedEndUtc { get; private set; }
@@ -88,6 +92,32 @@ public sealed class Appointment
         return appointment;
     }
 
+    public void AssignMechanic(Mechanic mechanic)
+    {
+        ArgumentNullException.ThrowIfNull(mechanic);
+
+        if (mechanic.Id <= 0)
+        {
+            throw new ArgumentException(
+                "Mechanic must already exist.",
+                nameof(mechanic));
+        }
+
+        if (!mechanic.IsActive)
+        {
+            throw new InvalidOperationException(
+                "Inactive mechanics cannot receive assignments.");
+        }
+
+        if (Status is not (AppointmentStatus.Confirmed or AppointmentStatus.Scheduled))
+        {
+            throw new InvalidOperationException(
+                "Only confirmed or scheduled appointments can receive assignments.");
+        }
+
+        MechanicId = mechanic.Id;
+        Mechanic = mechanic;
+    }
     public void UpdateBooking(
         int customerId,
         int vehicleId,

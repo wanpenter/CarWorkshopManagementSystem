@@ -23,15 +23,17 @@ builder.Services.AddDbContext<CarWorkshopDbContext>(options =>
 builder.Services.AddOpenApi();
 builder.Services.AddControllers();
 builder.Services.AddScoped<CarService>();
-builder.Services.AddScoped<ICustomerRepository, CustomerRepository>();
-builder.Services.AddScoped<IVehicleRepository, VehicleRepository>();
-builder.Services.AddScoped<IAppointmentRepository, AppointmentRepository>();
-builder.Services.AddScoped<IServiceRepository, ServiceRepository>();
-builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
 builder.Services.AddScoped<CustomerService>();
 builder.Services.AddScoped<VehicleService>();
 builder.Services.AddScoped<AppointmentService>();
 builder.Services.AddScoped<ServiceCatalogue>();
+builder.Services.AddScoped<MechanicService>();
+builder.Services.AddScoped<ICustomerRepository, CustomerRepository>();
+builder.Services.AddScoped<IVehicleRepository, VehicleRepository>();
+builder.Services.AddScoped<IAppointmentRepository, AppointmentRepository>();
+builder.Services.AddScoped<IServiceRepository, ServiceRepository>();
+builder.Services.AddScoped<IMechanicRepository,  MechanicRepository>();
+builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.Configure<ApiBehaviorOptions>(options =>
 {

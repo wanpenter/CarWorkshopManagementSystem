@@ -21,6 +21,8 @@ public class CarWorkshopDbContext : DbContext
 
     public DbSet<Service> Services { get; set; }
 
+    public DbSet<Mechanic> Mechanics { get; set; }
+
     public DbSet<AppointmentService> AppointmentServices { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)

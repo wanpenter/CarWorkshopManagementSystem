@@ -42,8 +42,13 @@ Coverage includes persisted booking details and service snapshots, vehicle
 ownership, Malaysia working-hour boundaries, inactive services, adjacent and
 overlapping bookings, concurrent overlap/capacity requests, cancellation and
 rejection freeing capacity, catalogue changes, invalid status transitions, and
-failed reschedules preserving saved data. Concurrent edit protection remains
-separate follow-up work; these concurrency tests check booking creation only.
+failed reschedules preserving saved data. Mechanic assignment tests cover persisted
+IDs and names, active/status validation, missing records, overlap and adjacent jobs,
+reassignment, cancellation releasing the mechanic, and rejected reschedules or
+duration changes preserving saved data. Concurrent assignment and reschedule tests
+check that requests cannot double-book the same mechanic. Appointment updates and
+assignment share a scheduling lock and load the booking after acquiring it.
+General optimistic edit/version conflict detection remains separate follow-up work.
 
 GitHub Actions starts its own disposable MySQL service, runs both backend test
 projects and the frontend tests/build, and uploads backend TRX reports. Its

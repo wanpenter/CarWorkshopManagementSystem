@@ -73,6 +73,15 @@ public sealed class AppointmentsController : ControllerBase
             cancellationToken));
     }
 
+    [HttpPut("{id:int}/mechanic")]
+    public async Task<ActionResult<AppointmentDetails>> AssignMechanic(
+        int id,
+        AssignMechanicRequest request,
+        CancellationToken cancellationToken)
+    {
+        return Ok(await _appointments.AssignMechanicAsync(id, request.MechanicId, cancellationToken));
+    }
+
     private static AppointmentStatus? ParseOptionalStatus(string? value)
     {
         if (string.IsNullOrWhiteSpace(value))

@@ -10,6 +10,7 @@ public sealed class AppointmentService(
     ICustomerRepository customers,
     IVehicleRepository vehicles,
     IServiceRepository services,
+    IMechanicRepository mechanics,
     IUnitOfWork unitOfWork,
     TimeProvider timeProvider)
 {
@@ -52,6 +53,14 @@ public sealed class AppointmentService(
     public async Task<AppointmentDetails> UpdateAsync(int id, AppointmentCommand command,
         CancellationToken cancellationToken = default)
     {
+        // Read after taking the lock so assignment and rescheduling use the latest saved state.
+        return await appointments.WithSchedulingLockAsync(
+            () => UpdateBookingAsync(id, command, cancellationToken), cancellationToken);
+    }
+
+    private async Task<AppointmentDetails> UpdateBookingAsync(int id, AppointmentCommand command,
+        CancellationToken cancellationToken)
+    {
         var appointment = await FindAppointmentAsync(id, cancellationToken);
         var customer = await FindCustomerAsync(command.CustomerId, cancellationToken);
         var vehicle = await FindVehicleAsync(command.VehicleId, cancellationToken);
@@ -73,10 +82,55 @@ public sealed class AppointmentService(
             }
             ValidateWorkingHours(appointment);
             if (ConsumesCapacity(appointment.Status))
+            {
                 await ValidateCapacityAsync(appointment, id, cancellationToken);
+                await ValidateMechanicScheduleAsync(appointment, cancellationToken);
+            }
             await unitOfWork.SaveChangesAsync(cancellationToken);
             return ToDetails(appointment, customer, vehicle);
         }, cancellationToken);
+    }
+
+    public async Task<AppointmentDetails> AssignMechanicAsync(int appointmentId, int mechanicId,
+        CancellationToken cancellationToken = default)
+    {
+        if (mechanicId <= 0)
+            throw new ArgumentOutOfRangeException(nameof(mechanicId), "Choose a mechanic.");
+
+        return await appointments.WithSchedulingLockAsync(async () =>
+        {
+            var appointment = await FindAppointmentAsync(appointmentId, cancellationToken);
+            var mechanic = await mechanics.GetByIdAsync(mechanicId, cancellationToken)
+                ?? throw new EntityNotFoundException("Mechanic", mechanicId);
+
+            if (!appointment.EstimatedEndUtc.HasValue)
+                throw new ConflictException("This appointment needs an estimated end time before assignment.");
+
+            try { appointment.AssignMechanic(mechanic); }
+            catch (InvalidOperationException exception)
+            {
+                throw new ConflictException(exception.Message);
+            }
+
+            await ValidateMechanicScheduleAsync(appointment, cancellationToken);
+            await unitOfWork.SaveChangesAsync(cancellationToken);
+            return ToDetails(appointment);
+        }, cancellationToken);
+    }
+
+    private async Task ValidateMechanicScheduleAsync(Appointment proposed,
+        CancellationToken cancellationToken)
+    {
+        if (!proposed.MechanicId.HasValue)
+            return;
+
+        var dayStartUtc = proposed.ScheduledAtUtc.Add(MalaysiaOffset).Date.Subtract(MalaysiaOffset);
+        var bookings = await appointments.GetForDayAsync(dayStartUtc, dayStartUtc.AddDays(1), cancellationToken);
+        if (bookings.Any(other => other.Id != proposed.Id &&
+            other.MechanicId == proposed.MechanicId && ConsumesCapacity(other.Status) &&
+            other.ScheduledAtUtc < proposed.EstimatedEndUtc &&
+            (other.EstimatedEndUtc ?? other.ScheduledAtUtc.AddMinutes(30)) > proposed.ScheduledAtUtc))
+            throw new ConflictException("This mechanic already has an overlapping appointment.");
     }
 
     private async Task ValidateCapacityAsync(Appointment proposed, int? ownId,
@@ -149,5 +203,6 @@ public sealed class AppointmentService(
             appointment.EstimatedEndUtc, appointment.ServiceType,
             appointment.Services.Select(item => new AppointmentServiceDetails(item.ServiceId,
                 item.Name, item.Price, item.DurationMinutes)).ToArray(),
-            appointment.Notes, appointment.Status.ToString(), appointment.CreatedAt);
+            appointment.Notes, appointment.Status.ToString(), appointment.CreatedAt,
+            appointment.MechanicId, appointment.Mechanic?.FullName);
 }

@@ -58,5 +58,13 @@ internal sealed class AppointmentConfiguration : IEntityTypeConfiguration<Appoin
             .WithMany()
             .HasForeignKey(appointment => appointment.VehicleId)
             .OnDelete(DeleteBehavior.Restrict);
+
+        builder.HasOne(appointment => appointment.Mechanic)
+    .       WithMany()
+    .       HasForeignKey(appointment => appointment.MechanicId)
+    .       OnDelete(DeleteBehavior.Restrict);
+
     }
+
+
 }

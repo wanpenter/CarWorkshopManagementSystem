@@ -23,6 +23,8 @@ public sealed record AppointmentDetails(
     IReadOnlyList<AppointmentServiceDetails> Services,
     string? Notes,
     string Status,
-    DateTime CreatedAt);
+    DateTime CreatedAt,
+    int? MechanicId = null,
+    string? MechanicName = null);
 
 public sealed record AppointmentServiceDetails(int ServiceId, string Name, decimal Price, int DurationMinutes);

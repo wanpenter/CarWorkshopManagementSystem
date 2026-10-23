@@ -24,6 +24,7 @@ public sealed class AppointmentRepository : IAppointmentRepository
             .Include(appointment => appointment.Customer)
             .Include(appointment => appointment.Vehicle)
             .Include(appointment => appointment.Services)
+            .Include(appointment => appointment.Mechanic)
             .AsQueryable();
 
         if (customerId.HasValue)
@@ -50,6 +51,7 @@ public sealed class AppointmentRepository : IAppointmentRepository
             .Include(appointment => appointment.Customer)
             .Include(appointment => appointment.Vehicle)
             .Include(appointment => appointment.Services)
+            .Include(appointment => appointment.Mechanic)
             .SingleOrDefaultAsync(appointment => appointment.Id == id, cancellationToken);
     }
 
@@ -60,7 +62,15 @@ public sealed class AppointmentRepository : IAppointmentRepository
                 appointment.ScheduledAtUtc < nextDayUtc)
             .ToListAsync(cancellationToken);
 
-    public async Task<T> WithDayLockAsync<T>(DateOnly day, Func<Task<T>> action,
+    public Task<T> WithDayLockAsync<T>(DateOnly day, Func<Task<T>> action,
+        CancellationToken cancellationToken = default) =>
+        WithLockAsync($"cw-booking-{day:yyyyMMdd}", action, cancellationToken);
+
+    public Task<T> WithSchedulingLockAsync<T>(Func<Task<T>> action,
+        CancellationToken cancellationToken = default) =>
+        WithLockAsync("cw-appointment-scheduling", action, cancellationToken);
+
+    private async Task<T> WithLockAsync<T>(string lockName, Func<Task<T>> action,
         CancellationToken cancellationToken = default)
     {
         // A named MySQL lock serializes the capacity check and write across API instances.
@@ -68,7 +78,6 @@ public sealed class AppointmentRepository : IAppointmentRepository
         var wasOpen = connection.State == System.Data.ConnectionState.Open;
         if (!wasOpen)
             await connection.OpenAsync(cancellationToken);
-        var lockName = $"cw-booking-{day:yyyyMMdd}";
         try
         {
             await using (var acquire = connection.CreateCommand())

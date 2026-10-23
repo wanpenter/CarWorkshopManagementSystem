@@ -33,7 +33,7 @@ public sealed class UnitOfWork : IUnitOfWork
             if (addedOrModifiedAppointment is not null)
             {
                 throw new ConflictException(
-                    "The appointment references a customer or vehicle that no longer exists.");
+                    "The appointment references a customer, vehicle, or mechanic that no longer exists.");
             }
 
             var addedOrModifiedVehicle = _context.ChangeTracker.Entries<Vehicle>()

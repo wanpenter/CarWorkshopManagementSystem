@@ -20,4 +20,7 @@ public interface IAppointmentRepository
 
     Task<T> WithDayLockAsync<T>(DateOnly day, Func<Task<T>> action,
         CancellationToken cancellationToken = default);
+
+    Task<T> WithSchedulingLockAsync<T>(Func<Task<T>> action,
+        CancellationToken cancellationToken = default);
 }

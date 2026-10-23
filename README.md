@@ -77,8 +77,24 @@ active bookings. Appointment times are stored in UTC. Customers and vehicles lin
 to appointments are protected from deletion to preserve history. Appointments from
 the earlier free-text service version remain readable.
 
-Authentication, mechanic assignment, and actual service history are later
-modules. Run this unauthenticated version only in a trusted local environment.
+Mechanics use `/api/mechanics` for listing and creation, and `/api/mechanics/{id}`
+for reading and updating details or active status. Assign or replace an appointment's
+mechanic with `PUT /api/appointments/{id}/mechanic` and JSON `{"mechanicId": 1}`.
+The mechanic must exist and be active; the appointment must be Confirmed or Scheduled
+and have an estimated end time. Appointment responses include nullable `mechanicId`
+and `mechanicName`. Existing unassigned bookings remain valid.
+
+Assignments and appointment updates reject overlapping jobs for the same mechanic,
+including changes to the start time or service duration. Jobs ending exactly when
+another begins are allowed. Cancelled and Rejected appointments do not block the
+mechanic's schedule. Failed assignments or reschedules leave saved data unchanged.
+A shared MySQL scheduling lock serializes assignment and appointment updates before
+reading the booking; the existing daily lock still protects booking capacity.
+This favors simple, correct scheduling over parallel updates across unrelated days.
+Deactivation prevents new assignments and preserves existing assignments and history.
+
+Authentication, the mechanic assignment frontend, and actual service history are
+later modules. Run this unauthenticated version only in a trusted local environment.
 
 ## Verify
 
