@@ -3,7 +3,9 @@
 param(
     [string]$MySqlDirectory,
     [ValidateRange(1024, 65535)]
-    [int]$Port = 33307
+    [int]$Port = 33307,
+    [switch]$VerifyFrontend,
+    [string]$PlaywrightModule = 'playwright'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -32,6 +34,10 @@ $taskPassword = [Guid]::NewGuid().ToString('N')
 $taskPreviousConnection = $env:WORKSHOP_TEST_MYSQL
 $taskPreviousPassword = $env:MYSQL_PWD
 $taskProcess = $null
+$taskApiProcess = $null
+$taskPreviousApiConnection = $env:ConnectionStrings__DefaultConnection
+$taskPreviousEnvironment = $env:ASPNETCORE_ENVIRONMENT
+$taskPreviousBrowserModule = $env:WORKSHOP_PLAYWRIGHT_MODULE
 
 Push-Location $taskRoot
 try {
@@ -58,9 +64,43 @@ try {
     $env:WORKSHOP_TEST_MYSQL = "Server=127.0.0.1;Port=$Port;User ID=root;Password=$taskPassword;SslMode=Required;"
     & dotnet test tests/CarWorkshop.IntegrationTests/CarWorkshop.IntegrationTests.csproj --configuration Release -m:1 --logger trx --results-directory .build-temp/test-results/integration
     if ($LASTEXITCODE -ne 0) { throw 'Booking integration tests failed.' }
+
+    if ($VerifyFrontend) {
+        if (Get-NetTCPConnection -State Listen -LocalPort 5273 -ErrorAction SilentlyContinue) {
+            throw 'Frontend verification API port 5273 is already in use.'
+        }
+        $taskUiDatabase = 'cw_ui_' + [Guid]::NewGuid().ToString('N')
+        & $taskClient --no-defaults --host=127.0.0.1 "--port=$Port" --user=root "--execute=CREATE DATABASE $taskUiDatabase"
+        if ($LASTEXITCODE -ne 0) { throw 'Could not create the isolated frontend test database.' }
+        $env:ConnectionStrings__DefaultConnection = "$($env:WORKSHOP_TEST_MYSQL)Database=$taskUiDatabase;"
+        $env:ASPNETCORE_ENVIRONMENT = 'Development'
+        $env:WORKSHOP_PLAYWRIGHT_MODULE = $PlaywrightModule
+        & dotnet ef database update --project src/CarWorkshop.Infrastructure --startup-project src/CarWorkshop.Api --configuration Release --no-build *> (Join-Path $taskRunDirectory 'migrations.log')
+        if ($LASTEXITCODE -ne 0) { throw 'Could not migrate the frontend test database.' }
+        $taskApiProcess = Start-Process -FilePath dotnet -WindowStyle Hidden -PassThru -ArgumentList @(
+            'run', '--project', 'src/CarWorkshop.Api/CarWorkshop.Api.csproj', '--configuration', 'Release',
+            '--no-build', '--no-launch-profile', '--urls', 'http://127.0.0.1:5273'
+        ) -RedirectStandardOutput (Join-Path $taskRunDirectory 'api.out.log') -RedirectStandardError (Join-Path $taskRunDirectory 'api.err.log')
+        $taskApiReady = $false
+        for ($taskAttempt = 0; $taskAttempt -lt 40; $taskAttempt++) {
+            if ($taskApiProcess.HasExited) { throw "Verification API exited. Logs: $taskRunDirectory" }
+            try {
+                $null = Invoke-RestMethod 'http://127.0.0.1:5273/api/health' -TimeoutSec 1
+                $taskApiReady = $true
+                break
+            } catch { Start-Sleep -Milliseconds 500 }
+        }
+        if (-not $taskApiReady) { throw 'Verification API did not become ready.' }
+        & node scripts/Verify-MechanicFrontend.cjs
+        if ($LASTEXITCODE -ne 0) { throw 'Mechanic frontend verification failed.' }
+    }
 }
 finally {
     try {
+        if ($null -ne $taskApiProcess -and -not $taskApiProcess.HasExited) {
+            taskkill /PID $taskApiProcess.Id /T /F | Out-Null
+            $null = $taskApiProcess.WaitForExit(10000)
+        }
         if ($null -ne $taskProcess -and -not $taskProcess.HasExited) {
             $null = & $taskAdmin --no-defaults --host=127.0.0.1 "--port=$Port" --user=root --connect-timeout=2 shutdown 2>$null
             if (-not $taskProcess.WaitForExit(10000)) { Stop-Process -InputObject $taskProcess -Force }
@@ -69,6 +109,9 @@ finally {
     finally {
         $env:WORKSHOP_TEST_MYSQL = $taskPreviousConnection
         $env:MYSQL_PWD = $taskPreviousPassword
+        $env:ConnectionStrings__DefaultConnection = $taskPreviousApiConnection
+        $env:ASPNETCORE_ENVIRONMENT = $taskPreviousEnvironment
+        $env:WORKSHOP_PLAYWRIGHT_MODULE = $taskPreviousBrowserModule
         Pop-Location
         if (Test-Path -LiteralPath $taskInit) { Remove-Item -LiteralPath $taskInit -Force }
         $taskAllowedRoot = [IO.Path]::GetFullPath((Join-Path $taskRoot '.build-temp')) + [IO.Path]::DirectorySeparatorChar

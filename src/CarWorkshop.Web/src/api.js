@@ -134,6 +134,17 @@ export function validateCustomer(values) {
   };
 }
 
+export function validateMechanic(values) {
+  const checked = validateCustomer(values);
+  const { fullName, phone } = checked.values;
+  const errors = { ...checked.errors };
+  delete errors.address;
+  if (!fullName) errors.fullName = "Enter the mechanic's full name.";
+  if (!phone) errors.phone = "Enter the mechanic's phone number.";
+  else if (phone.length > 20) errors.phone = "Phone number must be 20 characters or fewer.";
+  return { valid: Object.keys(errors).length === 0, errors, values: { fullName, phone, isActive: values?.isActive !== false } };
+}
+
 export function validateVehicle(values, { currentYear = new Date().getUTCFullYear() } = {}) {
   const customerId = Number(values?.customerId);
   const registrationNumber = canonicalizeRegistration(values?.registrationNumber);
@@ -415,6 +426,10 @@ export function createApiClient(
     updateAppointment: (id, appointment, { signal } = {}) => request(`/api/appointments/${id}`, { method: "PUT", body: appointment, signal }),
     getServices: ({ signal } = {}) => request("/api/services", { signal }),
     addService: (service, { signal } = {}) => request("/api/services", { method: "POST", body: service, signal }),
-    updateService: (id, service, { signal } = {}) => request(`/api/services/${id}`, { method: "PUT", body: service, signal })
+    updateService: (id, service, { signal } = {}) => request(`/api/services/${id}`, { method: "PUT", body: service, signal }),
+    getMechanics: ({ signal } = {}) => request("/api/mechanics", { signal }),
+    addMechanic: (mechanic, { signal } = {}) => request("/api/mechanics", { method: "POST", body: mechanic, signal }),
+    updateMechanic: (id, mechanic, { signal } = {}) => request(`/api/mechanics/${id}`, { method: "PUT", body: mechanic, signal }),
+    assignMechanic: (id, mechanicId, { signal } = {}) => request(`/api/appointments/${id}/mechanic`, { method: "PUT", body: { mechanicId }, signal })
   });
 }

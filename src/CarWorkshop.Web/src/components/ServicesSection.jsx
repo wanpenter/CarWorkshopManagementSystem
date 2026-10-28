@@ -78,9 +78,9 @@ export default function ServicesSection({ active, status, errorMessage, services
   }
 
   return <section hidden={!active} aria-labelledby="services-title"><div className="workspace-grid">
-    <div className="min-w-0 px-[clamp(1rem,5vw,5rem)] py-[clamp(2.25rem,5vw,5rem)]">
-      <div className="mb-8 flex items-end justify-between gap-6 max-mid:flex-col max-mid:items-start">
-        <div><h1 id="services-title" className="page-title">Services</h1><p className="mt-3 max-w-[65ch] text-ink-soft">Set the price and time for work offered at the workshop. Inactive services stay visible in past bookings.</p></div>
+    <div className="records-panel">
+      <div className="records-heading">
+        <div><h1 id="services-title" className="page-title" tabIndex={-1}>Services</h1><p className="mt-3 max-w-[65ch] text-ink-soft">Set the price and time for work offered at the workshop. Inactive services stay visible in past bookings.</p></div>
         <button className="button button-secondary shrink-0 max-[500px]:w-full" type="button" disabled={busy || status !== "ready"} onClick={() => void onRetry()}>Reload records</button>
       </div>
       <div className="appointment-filters service-filters"><div><label className="mb-2 block font-bold" htmlFor="service-search">Search services</label><input id="service-search" className="control-input" type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Name or description" disabled={status !== "ready"} /></div><label className="inline-flex min-h-11 items-center gap-3 font-semibold"><input className="size-5 accent-rust" type="checkbox" checked={showInactive} onChange={(event) => setShowInactive(event.target.checked)} disabled={status !== "ready"} /> Show inactive</label></div>

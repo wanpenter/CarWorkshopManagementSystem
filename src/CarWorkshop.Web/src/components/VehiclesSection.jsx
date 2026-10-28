@@ -132,10 +132,10 @@ export default function VehiclesSection({
   return (
     <section hidden={!active} aria-labelledby="vehicles-title">
       <div className="workspace-grid">
-        <div className="min-w-0 px-[clamp(1rem,5vw,5rem)] py-[clamp(2.25rem,5vw,5rem)]">
-          <div className="mb-8 flex items-end justify-between gap-6 max-mid:flex-col max-mid:items-start">
+        <div className="records-panel">
+          <div className="records-heading">
             <div>
-              <h1 id="vehicles-title" className="page-title">Vehicles</h1>
+              <h1 id="vehicles-title" className="page-title" tabIndex={-1}>Vehicles</h1>
               <p className="mt-3 max-w-[65ch] text-ink-soft">Register each vehicle to an owner and keep mileage and active status current.</p>
             </div>
             <button className="button button-secondary shrink-0 max-[500px]:w-full" type="button" disabled={busy || status !== "ready"} onClick={() => void onRetry()}>

@@ -1,0 +1,176 @@
+const assert = require('node:assert/strict');
+const path = require('node:path');
+const { chromium } = require(process.env.WORKSHOP_PLAYWRIGHT_MODULE || 'playwright');
+
+async function main() {
+  const browser = await chromium.launch({ channel: 'msedge', headless: true });
+  try {
+    const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+    const errors = [];
+    page.on('pageerror', (error) => errors.push(error.message));
+    await page.addInitScript(() => localStorage.setItem('car-workshop-api-base-url', 'http://127.0.0.1:5273'));
+    await page.goto('http://127.0.0.1:4173');
+    await page.getByText('API connected', { exact: true }).waitFor();
+    const section = (name) => page.locator(`section[aria-labelledby="${name}-title"]`);
+    const tab = async (name) => {
+      if (!await page.locator(`#${name}-nav`).isVisible()) await page.getByRole('button', { name: 'Open navigation', exact: true }).click();
+      await page.locator(`#${name}-nav`).click();
+    };
+    const save = async (scope, name, endpoint, method = 'POST') => {
+      const response = page.waitForResponse((r) => new URL(r.url()).pathname === endpoint && r.request().method() === method);
+      await scope.getByRole('button', { name, exact: true }).click();
+      const result = await response;
+      assert.ok(result.ok(), `${method} ${endpoint}: ${await result.text()}`);
+      await page.getByRole('button', { name: 'Reload records', exact: true }).filter({ visible: true }).waitFor({ state: 'visible' });
+      await page.waitForFunction(() => ![...document.querySelectorAll('section:not([hidden]) button')].some((button) => button.textContent === 'Saving...'));
+      return result.json();
+    };
+
+    await tab('mechanics');
+    const mechanics = section('mechanics');
+    await mechanics.getByRole('button', { name: 'Add first mechanic' }).click();
+    await mechanics.getByRole('button', { name: 'Add mechanic', exact: true }).click();
+    await mechanics.getByText("Enter the mechanic's full name.", { exact: true }).waitFor();
+    assert.equal(await page.locator(':focus').getAttribute('id'), 'mechanicFullName-input');
+    await mechanics.getByLabel('Full name', { exact: true }).fill('Verification Mechanic');
+    await mechanics.getByLabel('Phone number', { exact: true }).fill('0123456789');
+    const mechanic = await save(mechanics, 'Add mechanic', '/api/mechanics');
+    await mechanics.getByRole('button', { name: 'Edit mechanic Verification Mechanic', exact: true }).click();
+    await mechanics.getByLabel('Full name', { exact: true }).fill('Verification Mechanic Updated');
+    await save(mechanics, 'Save changes', `/api/mechanics/${mechanic.id}`, 'PUT');
+    await mechanics.getByLabel('Search mechanics').fill('missing');
+    await mechanics.getByText('No matching mechanics', { exact: true }).waitFor();
+    await mechanics.getByRole('button', { name: 'Clear filters', exact: true }).click();
+    await mechanics.getByRole('button', { name: 'Edit mechanic Verification Mechanic Updated', exact: true }).click();
+    await mechanics.getByRole('button', { name: 'Cancel edit', exact: true }).click();
+    await mechanics.getByRole('button', { name: 'Reload records', exact: true }).click();
+    await page.getByText('API connected', { exact: true }).waitFor();
+    await page.screenshot({ path: path.resolve('src/CarWorkshop.Web/.verification/mechanics-desktop.png'), fullPage: true });
+
+    await tab('customers');
+    const customers = section('customers');
+    await customers.getByLabel('Full name', { exact: true }).fill('Workflow Verification Customer');
+    await customers.getByLabel('Phone', { exact: true }).fill('0123456789');
+    const customer = await save(customers, 'Add customer', '/api/customers');
+    await tab('vehicles');
+    const vehicles = section('vehicles');
+    await vehicles.getByLabel('Owner', { exact: true }).selectOption(String(customer.id));
+    await vehicles.getByLabel('Registration number', { exact: true }).fill('UITEST1');
+    await vehicles.getByLabel('Make', { exact: true }).fill('Proton');
+    await vehicles.getByLabel('Model', { exact: true }).fill('Saga');
+    const vehicle = await save(vehicles, 'Register vehicle', '/api/vehicles');
+    await tab('services');
+    const services = section('services');
+    await services.getByLabel('Service name', { exact: true }).fill('Verification service');
+    await services.getByLabel('Price (RM)', { exact: true }).fill('50');
+    await save(services, 'Add service', '/api/services');
+    await tab('appointments');
+    const appointments = section('appointments');
+    await appointments.getByLabel('Customer', { exact: true }).last().selectOption(String(customer.id));
+    await appointments.getByLabel('Vehicle', { exact: true }).selectOption(String(vehicle.id));
+    const tomorrow = new Date(Date.now() + 3 * 86400000).toISOString().slice(0, 10);
+    await appointments.getByLabel('Date and time (MYT)', { exact: true }).fill(`${tomorrow}T09:00`);
+    await appointments.getByRole('checkbox', { name: /Verification service/ }).check();
+    const appointment = await save(appointments, 'Request booking', '/api/appointments');
+    await tab('dashboard');
+    const dashboard = section('dashboard');
+    assert.equal(await dashboard.getByRole('button', { name: /Awaiting review/ }).locator('strong').innerText(), '1');
+    await dashboard.locator('.upcoming-list').getByText('Workflow Verification Customer', { exact: true }).waitFor();
+    assert.ok((await dashboard.getByRole('img', { name: /Booking counts/ }).getAttribute('aria-label')).includes(': 1'));
+    await dashboard.getByRole('button', { name: /Review booking requests/ }).click();
+    const editBooking = () => appointments.getByRole('button', { name: /Edit .* appointment for Workflow Verification Customer/ }).filter({ visible: true }).click();
+    await editBooking();
+    await appointments.getByText('Confirm and save this booking before assigning a mechanic.', { exact: true }).waitFor();
+    await appointments.getByLabel('Status', { exact: true }).last().selectOption('Confirmed');
+    await save(appointments, 'Save changes', `/api/appointments/${appointment.id}`, 'PUT');
+    await editBooking();
+    await appointments.getByLabel('Mechanic', { exact: true }).selectOption(String(mechanic.id));
+    await appointments.getByLabel('Notes (optional)', { exact: true }).fill('Unsaved change');
+    assert.equal(await appointments.getByRole('button', { name: 'Assign mechanic', exact: true }).isDisabled(), true);
+    await appointments.getByLabel('Notes (optional)', { exact: true }).fill('');
+
+    // Exercise conflict recovery without changing the real database's successful path.
+    await page.route(`**/api/appointments/${appointment.id}/mechanic`, (route) => route.fulfill({ status: 409, contentType: 'application/problem+json', body: JSON.stringify({ detail: 'This mechanic already has an overlapping appointment.' }) }), { times: 1 });
+    await appointments.getByRole('button', { name: 'Assign mechanic', exact: true }).click();
+    await appointments.getByText('This mechanic already has an overlapping appointment.', { exact: true }).waitFor();
+    await save(appointments, 'Assign mechanic', `/api/appointments/${appointment.id}/mechanic`, 'PUT');
+    await appointments.getByText('Assigned:', { exact: false }).filter({ hasText: 'Verification Mechanic Updated' }).waitFor();
+    await tab('mechanics');
+    await mechanics.getByLabel('Full name', { exact: true }).fill('Replacement Mechanic');
+    await mechanics.getByLabel('Phone number', { exact: true }).fill('0129876543');
+    const replacement = await save(mechanics, 'Add mechanic', '/api/mechanics');
+    await tab('appointments');
+    await appointments.getByLabel('Mechanic', { exact: true }).selectOption(String(replacement.id));
+    await save(appointments, 'Replace mechanic', `/api/appointments/${appointment.id}/mechanic`, 'PUT');
+    await appointments.getByLabel('Mechanic', { exact: true }).selectOption(String(mechanic.id));
+    await save(appointments, 'Replace mechanic', `/api/appointments/${appointment.id}/mechanic`, 'PUT');
+    await page.evaluate(() => scrollTo(0, 0));
+    await page.screenshot({ path: path.resolve('src/CarWorkshop.Web/.verification/assignment-desktop.png'), fullPage: true });
+
+    await tab('mechanics');
+    await mechanics.getByRole('button', { name: 'Edit mechanic Verification Mechanic Updated', exact: true }).click();
+    await mechanics.getByLabel('Active for new assignments', { exact: true }).uncheck();
+    await save(mechanics, 'Save changes', `/api/mechanics/${mechanic.id}`, 'PUT');
+    await mechanics.getByLabel('Show inactive', { exact: true }).uncheck();
+    assert.equal(await mechanics.getByRole('button', { name: 'Edit mechanic Verification Mechanic Updated', exact: true }).isVisible(), false);
+    await mechanics.getByLabel('Show inactive', { exact: true }).check();
+    await tab('appointments');
+    await appointments.getByText('Assigned:', { exact: false }).filter({ hasText: 'Verification Mechanic Updated (inactive)' }).waitFor();
+    assert.equal(await appointments.getByRole('option', { name: 'Verification Mechanic Updated (inactive)', exact: true }).isDisabled(), true);
+    await tab('mechanics');
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.evaluate(() => scrollTo(0, 0));
+    await page.screenshot({ path: path.resolve('src/CarWorkshop.Web/.verification/mechanics-mobile.png'), fullPage: true });
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'Mechanics mobile overflow');
+    await mechanics.getByRole('button', { name: 'Edit mechanic Verification Mechanic Updated', exact: true }).click();
+    await mechanics.getByLabel('Active for new assignments', { exact: true }).check();
+    await save(mechanics, 'Save changes', `/api/mechanics/${mechanic.id}`, 'PUT');
+    await tab('appointments');
+    await appointments.getByRole('button', { name: 'Cancel edit', exact: true }).click();
+    await editBooking();
+    await page.evaluate(() => scrollTo(0, 0));
+    await page.screenshot({ path: path.resolve('src/CarWorkshop.Web/.verification/assignment-mobile.png'), fullPage: true });
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'Appointments mobile overflow');
+    for (const status of ['InProgress', 'Completed']) {
+      await appointments.getByLabel('Status', { exact: true }).last().selectOption(status);
+      await save(appointments, 'Save changes', `/api/appointments/${appointment.id}`, 'PUT');
+      await editBooking();
+    }
+    const stored = await page.request.get(`http://127.0.0.1:5273/api/appointments/${appointment.id}`);
+    const record = await stored.json();
+    assert.equal(record.status, 'Completed');
+    assert.equal(record.mechanicId, mechanic.id);
+    assert.equal(record.mechanicName, 'Verification Mechanic Updated');
+    await appointments.getByRole('button', { name: 'Close record', exact: true }).click();
+    await tab('dashboard');
+    await dashboard.getByText('No upcoming visits', { exact: true }).waitFor();
+    await page.getByRole('button', { name: 'Open navigation', exact: true }).click();
+    await page.keyboard.press('Escape');
+    assert.equal(await page.getByRole('button', { name: 'Open navigation', exact: true }).getAttribute('aria-expanded'), 'false');
+
+    await tab('mechanics');
+    await mechanics.getByLabel('Full name', { exact: true }).focus();
+    await page.keyboard.press('Tab');
+    assert.equal(await page.locator(':focus').getAttribute('id'), 'mechanicPhone-input');
+    assert.notEqual(await page.locator(':focus').evaluate((element) => getComputedStyle(element).outlineStyle), 'none');
+    await page.route('**/api/mechanics', (route) => route.fulfill({ status: 503, contentType: 'application/problem+json', body: JSON.stringify({ detail: 'Verification connection failure. Reload to retry.' }) }), { times: 1 });
+    await mechanics.getByRole('button', { name: 'Reload records', exact: true }).click();
+    await mechanics.getByText('Mechanics could not be loaded', { exact: true }).waitFor();
+    await mechanics.getByRole('button', { name: 'Check API settings', exact: true }).click();
+    await page.keyboard.press('Escape');
+    await page.getByRole('dialog').waitFor({ state: 'hidden' });
+    let releaseLoading;
+    const holdLoading = new Promise((resolve) => { releaseLoading = resolve; });
+    await page.route('**/api/mechanics', async (route) => { await holdLoading; await route.continue(); }, { times: 1 });
+    await mechanics.getByRole('button', { name: 'Try connection again', exact: true }).click();
+    await mechanics.getByText('Loading mechanics', { exact: true }).waitFor();
+    releaseLoading();
+    await page.getByText('API connected', { exact: true }).waitFor();
+    assert.deepEqual(errors, [], 'Browser errors');
+    console.log('PASS: real customer → vehicle → booking → confirmation → mechanic assignment → completed appointment, persisted in isolated MySQL.');
+    console.log('PASS: mechanic create/edit/activate/deactivate, search/filter/reload/cancel, conflict recovery, unsaved-booking guard, desktop/mobile layouts, no browser errors.');
+  } finally {
+    await browser.close();
+  }
+}
+main().catch((error) => { console.error(error); process.exitCode = 1; });

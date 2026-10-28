@@ -93,8 +93,15 @@ reading the booking; the existing daily lock still protects booking capacity.
 This favors simple, correct scheduling over parallel updates across unrelated days.
 Deactivation prevents new assignments and preserves existing assignments and history.
 
-Authentication, the mechanic assignment frontend, and actual service history are
-later modules. Run this unauthenticated version only in a trusted local environment.
+The Mechanics tab supports creating and editing staff, searching by name or phone,
+and activating or deactivating mechanics. In Appointments, edit a confirmed or
+scheduled booking to assign or replace its mechanic. Save booking changes before
+assigning staff. The API rejects overlapping jobs and the editor displays the
+conflict while keeping the booking open. Assigned names appear in the appointment
+list and remain visible in completed records.
+
+Authentication and actual service history are later modules. Run this
+unauthenticated version only in a trusted local environment.
 
 ## Verify
 

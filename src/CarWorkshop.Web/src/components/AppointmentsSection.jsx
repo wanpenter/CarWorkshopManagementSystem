@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import MechanicAssignment from "./MechanicAssignment.jsx";
 import {
   APPOINTMENT_STATUSES,
   appointmentEstimate,
@@ -87,6 +88,9 @@ export default function AppointmentsSection({
   vehicles,
   appointments,
   services,
+  mechanics,
+  onAssignMechanic,
+  onAddMechanic,
   busy,
   onOpenSettings,
   onRetry,
@@ -130,7 +134,7 @@ export default function AppointmentsSection({
       if (customerFilter && Number(appointment.customerId) !== Number(customerFilter)) return false;
       if (statusFilter && appointment.status !== statusFilter) return false;
       if (!query) return true;
-      return `${appointment.customerName ?? ""} ${appointment.registrationNumber ?? ""} ${appointment.vehicleName ?? ""} ${bookedServices(appointment)} ${appointment.notes ?? ""}`
+      return `${appointment.customerName ?? ""} ${appointment.registrationNumber ?? ""} ${appointment.vehicleName ?? ""} ${bookedServices(appointment)} ${appointment.notes ?? ""} ${appointment.mechanicName ?? ""}`
         .toLocaleLowerCase()
         .includes(query);
     });
@@ -170,6 +174,15 @@ export default function AppointmentsSection({
 
   const legacyWithoutServices = selectedAppointment && !selectedAppointment.services?.length;
   const terminalAppointment = ["Completed", "Cancelled", "Rejected"].includes(selectedAppointment?.status) || Boolean(legacyWithoutServices);
+  const bookingDirty = selectedAppointment && (
+    Number(form.customerId) !== Number(selectedAppointment.customerId) ||
+    Number(form.vehicleId) !== Number(selectedAppointment.vehicleId) ||
+    form.scheduledAtLocal !== toWorkshopDateTimeInput(selectedAppointment.scheduledAtUtc) ||
+    form.status !== selectedAppointment.status ||
+    form.notes !== (selectedAppointment.notes ?? "") ||
+    form.serviceIds.length !== (selectedAppointment.services?.length ?? 0) ||
+    form.serviceIds.some((id) => !selectedAppointment.services?.some((service) => Number(service.serviceId) === id))
+  );
 
   useEffect(() => {
     if (selectedId !== null && !appointments.some((appointment) => Number(appointment.id) === selectedId)) {
@@ -273,10 +286,10 @@ export default function AppointmentsSection({
   return (
     <section hidden={!active} aria-labelledby="appointments-title">
       <div className="workspace-grid">
-        <div className="min-w-0 px-[clamp(1rem,5vw,5rem)] py-[clamp(2.25rem,5vw,5rem)]">
-          <div className="mb-8 flex items-end justify-between gap-6 max-mid:flex-col max-mid:items-start">
+        <div className="records-panel">
+          <div className="records-heading">
             <div>
-              <h1 id="appointments-title" className="page-title">Appointments</h1>
+              <h1 id="appointments-title" className="page-title" tabIndex={-1}>Appointments</h1>
               <p className="mt-3 max-w-[65ch] text-ink-soft">Book workshop visits with service estimates. New requests wait for staff review.</p>
             </div>
             <button className="button button-secondary shrink-0 max-[500px]:w-full" type="button" disabled={busy || connectionStatus !== "ready"} onClick={() => void onRetry()}>
@@ -287,7 +300,7 @@ export default function AppointmentsSection({
           <div className="appointment-filters">
             <div className="appointment-search">
               <label className="mb-2 block font-bold" htmlFor="appointment-search">Search appointments</label>
-              <input id="appointment-search" className="control-input" type="search" placeholder="Customer, vehicle, or service" autoComplete="off" value={search} disabled={connectionStatus !== "ready"} onChange={(event) => setSearch(event.target.value)} />
+              <input id="appointment-search" className="control-input" type="search" placeholder="Customer, vehicle, service, or mechanic" autoComplete="off" value={search} disabled={connectionStatus !== "ready"} onChange={(event) => setSearch(event.target.value)} />
             </div>
             <div>
               <label className="mb-2 block font-bold" htmlFor="appointment-customer-filter">Customer</label>
@@ -400,6 +413,7 @@ export default function AppointmentsSection({
                 </fieldset>
                 {terminalAppointment && <button className="button button-secondary w-full" type="button" onClick={() => resetEditor()}>Close record</button>}
               </form>
+              {selectedAppointment && <MechanicAssignment key={`${selectedAppointment.id}-${selectedAppointment.mechanicId ?? "unassigned"}`} appointment={selectedAppointment} mechanics={mechanics} busy={busy} ready={connectionStatus === "ready"} dirty={bookingDirty} onAssign={onAssignMechanic} onAddMechanic={onAddMechanic} />}
               {connectionStatus !== "ready" && <p className="mt-6 border-t border-paper-line pt-4 text-ink-soft">The editor unlocks after the API connects successfully.</p>}
             </>
           )}
@@ -438,7 +452,7 @@ function AppointmentRecords(props) {
     <>
       <div className="hidden overflow-x-auto border-b border-line-strong desk:block">
         <table className="w-full min-w-245 border-collapse tabular-nums">
-          <thead><tr><TableHead>When</TableHead><TableHead>Customer</TableHead><TableHead>Vehicle</TableHead><TableHead>Service</TableHead><TableHead>Status</TableHead><TableHead className="text-right"><span className="sr-only">Actions</span></TableHead></tr></thead>
+          <thead><tr><TableHead>When</TableHead><TableHead>Customer</TableHead><TableHead>Vehicle</TableHead><TableHead>Service</TableHead><TableHead>Mechanic</TableHead><TableHead>Status</TableHead><TableHead className="text-right"><span className="sr-only">Actions</span></TableHead></tr></thead>
           <tbody>
             {visibleAppointments.map((appointment) => (
               <tr key={appointment.id} className={Number(appointment.id) === selectedId ? "bg-selected" : "transition-colors hover:bg-selected"}>
@@ -446,6 +460,7 @@ function AppointmentRecords(props) {
                 <TableCell>{appointment.customerName}</TableCell>
                 <TableCell><strong>{appointment.registrationNumber}</strong><span className="mt-0.5 block text-sm text-ink-soft">{appointment.vehicleName}</span></TableCell>
                 <TableCell className="max-w-70">{bookedServices(appointment)}<span className="mt-0.5 block text-sm text-ink-soft">{appointment.services?.length ? `${appointment.services.reduce((sum, service) => sum + Number(service.durationMinutes || 0), 0)} min · ${money(appointment.services.reduce((sum, service) => sum + Number(service.price || 0), 0))}` : "Legacy booking"}</span></TableCell>
+                <TableCell>{appointment.mechanicName || "Unassigned"}</TableCell>
                 <TableCell><span className={`status-text ${statusClasses[appointment.status] ?? "text-ink-soft"}`}>{statusLabels[appointment.status] ?? appointment.status}</span></TableCell>
                 <TableCell><AppointmentActions appointment={appointment} busy={busy} onEdit={onEdit} /></TableCell>
               </tr>
@@ -461,6 +476,7 @@ function AppointmentRecords(props) {
             <MobileDatum label="Vehicle">{appointment.registrationNumber} · {appointment.vehicleName}</MobileDatum>
             <MobileDatum label="Service">{bookedServices(appointment)}</MobileDatum>
             <MobileDatum label="Notes">{appointment.notes || "No notes"}</MobileDatum>
+            <MobileDatum label="Mechanic">{appointment.mechanicName || "Unassigned"}</MobileDatum>
             <MobileDatum label="Status"><span className={statusClasses[appointment.status] ?? "text-ink-soft"}>{statusLabels[appointment.status] ?? appointment.status}</span></MobileDatum>
             <div className="mt-2 border-t border-paper-line pt-2"><AppointmentActions appointment={appointment} busy={busy} onEdit={onEdit} /></div>
           </article>

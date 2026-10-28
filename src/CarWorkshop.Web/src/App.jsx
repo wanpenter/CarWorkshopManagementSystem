@@ -9,9 +9,12 @@ import {
 import CustomersSection from "./components/CustomersSection.jsx";
 import AppointmentsSection from "./components/AppointmentsSection.jsx";
 import ServicesSection from "./components/ServicesSection.jsx";
+import MechanicsSection from "./components/MechanicsSection.jsx";
 import { DeleteDialog, SettingsDialog } from "./components/Dialogs.jsx";
-import { ConnectionStatus, Notice } from "./components/Shared.jsx";
+import { Notice } from "./components/Shared.jsx";
 import VehiclesSection from "./components/VehiclesSection.jsx";
+import WorkshopShell from "./components/WorkshopShell.jsx";
+import DashboardSection from "./components/DashboardSection.jsx";
 
 function App() {
   const [browserStorage] = useState(() => {
@@ -34,9 +37,10 @@ function App() {
   const [vehicles, setVehicles] = useState([]);
   const [appointments, setAppointments] = useState([]);
   const [services, setServices] = useState([]);
+  const [mechanics, setMechanics] = useState([]);
   const [status, setStatus] = useState(apiBaseUrl ? "loading" : "disconnected");
   const [errorMessage, setErrorMessage] = useState("");
-  const [activeTab, setActiveTab] = useState("customers");
+  const [activeTab, setActiveTab] = useState("dashboard");
   const [ownerFilter, setOwnerFilter] = useState("");
   const [mutating, setMutating] = useState(false);
   const [notice, setNotice] = useState(() => {
@@ -92,13 +96,14 @@ function App() {
     }
 
     try {
-      const [customerResult, vehicleResult, appointmentResult, serviceResult] = await Promise.all([
+      const [customerResult, vehicleResult, appointmentResult, serviceResult, mechanicResult] = await Promise.all([
         api.getCustomers({ signal: controller.signal }),
         api.getVehicles({ signal: controller.signal }),
         api.getAppointments({ signal: controller.signal }),
-        api.getServices({ signal: controller.signal })
+        api.getServices({ signal: controller.signal }),
+        api.getMechanics({ signal: controller.signal })
       ]);
-      if (![customerResult, vehicleResult, appointmentResult, serviceResult].every(Array.isArray)) {
+      if (![customerResult, vehicleResult, appointmentResult, serviceResult, mechanicResult].every(Array.isArray)) {
         throw new Error("The API response did not contain complete workshop records.");
       }
       if (!mountedRef.current || activeLoadRef.current.revision !== revision) return { ok: false, stale: true };
@@ -106,6 +111,7 @@ function App() {
       setVehicles(vehicleResult);
       setAppointments(appointmentResult);
       setServices(serviceResult);
+      setMechanics(mechanicResult);
       setStatus("ready");
       setErrorMessage("");
       return { ok: true };
@@ -118,6 +124,7 @@ function App() {
         setVehicles([]);
         setAppointments([]);
         setServices([]);
+        setMechanics([]);
         setStatus("error");
         setErrorMessage(error.message);
       }
@@ -178,6 +185,29 @@ function App() {
       if (id === null) await api.addService(values);
       else await api.updateService(id, values);
       await refreshAfterWrite(id === null ? "Service added." : "Service changes saved.");
+    } finally {
+      if (mountedRef.current) setMutating(false);
+    }
+  }
+
+  async function saveMechanic(id, values) {
+    if (!api || mutating) throw new Error("Another change is still in progress.");
+    setMutating(true);
+    try {
+      if (id === null) await api.addMechanic(values);
+      else await api.updateMechanic(id, values);
+      await refreshAfterWrite(id === null ? "Mechanic added." : "Mechanic changes saved.");
+    } finally {
+      if (mountedRef.current) setMutating(false);
+    }
+  }
+
+  async function assignMechanic(appointmentId, mechanicId) {
+    if (!api || mutating) throw new Error("Another change is still in progress.");
+    setMutating(true);
+    try {
+      await api.assignMechanic(appointmentId, mechanicId);
+      await refreshAfterWrite("Mechanic assignment saved.");
     } finally {
       if (mountedRef.current) setMutating(false);
     }
@@ -263,24 +293,10 @@ function App() {
 
   return (
     <>
-      <a className="skip-link" href="#main-content">Skip to workshop records</a>
-      <header className="app-header">
-        <span className="font-display text-[1.08rem] font-bold">Workshop Registry</span>
-        <div className="flex items-center gap-2 max-[560px]:w-full max-[560px]:justify-between">
-          <ConnectionStatus status={status} />
-          <button className="button button-quiet" type="button" onClick={openSettings} disabled={mutating}>API settings</button>
-        </div>
-      </header>
-
-      <nav className="section-nav" aria-label="Workshop records">
-        <button id="customers-nav" className="section-tab" type="button" aria-current={activeTab === "customers" ? "page" : undefined} onClick={() => setActiveTab("customers")}>Customers <span className="tab-count">{customers.length}</span></button>
-        <button id="vehicles-nav" className="section-tab" type="button" aria-current={activeTab === "vehicles" ? "page" : undefined} onClick={() => setActiveTab("vehicles")}>Vehicles <span className="tab-count">{vehicles.length}</span></button>
-        <button id="appointments-nav" className="section-tab" type="button" aria-current={activeTab === "appointments" ? "page" : undefined} onClick={() => setActiveTab("appointments")}>Appointments <span className="tab-count">{appointments.length}</span></button>
-        <button id="services-nav" className="section-tab" type="button" aria-current={activeTab === "services" ? "page" : undefined} onClick={() => setActiveTab("services")}>Services <span className="tab-count">{services.length}</span></button>
-      </nav>
-
-      <main id="main-content">
-        <div className="px-[clamp(1rem,5vw,5rem)] pt-5"><Notice notice={notice} /></div>
+      <WorkshopShell activeTab={activeTab} counts={{ customers: customers.length, vehicles: vehicles.length, appointments: appointments.length, services: services.length, mechanics: mechanics.length }} status={status} mutating={mutating} onNavigate={setActiveTab} onOpenSettings={openSettings}>
+      <main id="main-content" tabIndex={-1}>
+        {notice && <div className="notice-container"><Notice notice={notice} /></div>}
+        <DashboardSection active={activeTab === "dashboard"} status={status} errorMessage={errorMessage} customers={customers} vehicles={vehicles} services={services} mechanics={mechanics} appointments={appointments} busy={busy} onRetry={loadRecords} onOpenSettings={openSettings} onNavigate={setActiveTab} />
         <CustomersSection
           active={activeTab === "customers"}
           status={status}
@@ -316,6 +332,9 @@ function App() {
           vehicles={vehicles}
           appointments={appointments}
           services={services}
+          mechanics={mechanics}
+          onAssignMechanic={assignMechanic}
+          onAddMechanic={() => { setActiveTab("mechanics"); window.requestAnimationFrame(() => document.getElementById("mechanics-nav")?.focus()); }}
           busy={busy}
           onOpenSettings={openSettings}
           onRetry={loadRecords}
@@ -334,7 +353,9 @@ function App() {
           onRetry={loadRecords}
           onSave={saveService}
         />
+        <MechanicsSection active={activeTab === "mechanics"} status={status} errorMessage={errorMessage} mechanics={mechanics} busy={busy} onOpenSettings={openSettings} onRetry={loadRecords} onSave={saveMechanic} />
       </main>
+      </WorkshopShell>
 
       <SettingsDialog open={settingsOpen} initialValue={apiBaseUrl} busy={mutating} onClose={closeSettings} onSave={saveSettings} />
       <DeleteDialog target={deleteTarget} error={deleteError} busy={mutating} onClose={closeDeleteDialog} onConfirm={confirmDelete} />

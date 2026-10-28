@@ -24,6 +24,17 @@ removes its temporary database files and password file, retaining logs under
 the ignored `.build-temp` directory. Use `-Port 33308` if the port is occupied,
 or `-MySqlDirectory 'C:\path\to\mysql'` for another extracted MySQL installation.
 
+To also exercise the real browser workflow, start the frontend on port 4173 and
+run the script with `-VerifyFrontend`. It requires Playwright and Microsoft Edge;
+pass `-PlaywrightModule` with the installed Playwright module path if it is not
+available through Node's normal package lookup. The script creates a separate
+temporary frontend database, applies migrations, starts a verification API on
+port 5273, and checks customer creation through a completed appointment with an
+assigned mechanic. It also checks mechanic editing, active status, filters,
+assignment conflict recovery, and mobile overflow. Screenshots are written to
+the ignored `src/CarWorkshop.Web/.verification` directory. The database and API
+are removed/stopped when verification ends. Existing workshop records are unused.
+
 For an already running dedicated test server:
 
 ```powershell
