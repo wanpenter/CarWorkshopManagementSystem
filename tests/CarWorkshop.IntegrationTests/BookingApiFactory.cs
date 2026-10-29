@@ -1,6 +1,8 @@
 using CarWorkshop.Domain.Entities;
 using CarWorkshop.Infrastructure.Data;
+using System.Net.Http.Json;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
@@ -19,6 +21,10 @@ public sealed class BookingApiFactory : WebApplicationFactory<Program>, IAsyncLi
     private string _connectionString = string.Empty;
     private int _day;
     private bool _databaseCreated;
+    private readonly BookingClock _clock = new();
+
+    public const string AdminUsername = "integration.admin";
+    public const string AdminPassword = "Integration!Admin#2039";
 
     public HttpClient Client { get; private set; } = null!;
 
@@ -34,7 +40,7 @@ public sealed class BookingApiFactory : WebApplicationFactory<Program>, IAsyncLi
             services.AddDbContext<CarWorkshopDbContext>(options =>
                 options.UseMySql(_connectionString, new MySqlServerVersion(new Version(8, 0, 46))));
             services.RemoveAll<TimeProvider>();
-            services.AddSingleton<TimeProvider>(new BookingClock());
+            services.AddSingleton<TimeProvider>(_clock);
         });
     }
 
@@ -61,13 +67,18 @@ public sealed class BookingApiFactory : WebApplicationFactory<Program>, IAsyncLi
         _connectionString = connection.ConnectionString;
         try
         {
-            Client = CreateClient(new WebApplicationFactoryClientOptions
-            {
-                BaseAddress = new Uri("https://localhost"),
-                AllowAutoRedirect = false
-            });
+            using var startupClient = CreateAnonymousClient();
             await using var scope = Services.CreateAsyncScope();
-            await scope.ServiceProvider.GetRequiredService<CarWorkshopDbContext>().Database.MigrateAsync();
+            var db = scope.ServiceProvider.GetRequiredService<CarWorkshopDbContext>();
+            await db.Database.MigrateAsync();
+            var passwordHasher = scope.ServiceProvider.GetRequiredService<IPasswordHasher<WorkshopUser>>();
+            var admin = WorkshopUser.Create(
+                AdminUsername, "Integration Administrator", "Admin", "pending", _clock.GetUtcNow().UtcDateTime);
+            admin.ChangePasswordHash(passwordHasher.HashPassword(admin, AdminPassword));
+            db.WorkshopUsers.Add(admin);
+            await db.SaveChangesAsync();
+
+            Client = await LoginAsync(AdminUsername, AdminPassword);
         }
         catch
         {
@@ -75,6 +86,69 @@ public sealed class BookingApiFactory : WebApplicationFactory<Program>, IAsyncLi
             throw;
         }
     }
+
+    public HttpClient CreateAnonymousClient(bool handleCookies = true) => CreateClient(new WebApplicationFactoryClientOptions
+    {
+        BaseAddress = new Uri("https://localhost"),
+        AllowAutoRedirect = false,
+        HandleCookies = handleCookies
+    });
+
+    public async Task<HttpClient> LoginAsync(string username, string password)
+    {
+        var client = CreateAnonymousClient();
+        try
+        {
+            await RefreshCsrfAsync(client);
+            using var response = await client.PostAsJsonAsync("/api/auth/login", new { username, password });
+            response.EnsureSuccessStatusCode();
+            await RefreshCsrfAsync(client);
+            return client;
+        }
+        catch
+        {
+            client.Dispose();
+            throw;
+        }
+    }
+
+    public async Task RefreshCsrfAsync(HttpClient client)
+    {
+        using var response = await client.GetAsync("/api/auth/csrf");
+        response.EnsureSuccessStatusCode();
+        var payload = await response.Content.ReadFromJsonAsync<CsrfTokenResponse>()
+            ?? throw new InvalidOperationException("The CSRF endpoint returned an empty response.");
+        client.DefaultRequestHeaders.Remove("X-CSRF-TOKEN");
+        client.DefaultRequestHeaders.Add("X-CSRF-TOKEN", payload.Token);
+    }
+
+    public async Task<TestAccount> CreateAccountAsync(
+        string role = "Staff",
+        bool isActive = true,
+        string? username = null,
+        string? password = null,
+        string? fullName = null)
+    {
+        var suffix = Guid.NewGuid().ToString("N")[..10];
+        username ??= $"test.{suffix}";
+        password ??= $"Valid!Pass#{suffix}";
+        fullName ??= $"Test {role} {suffix}";
+
+        using var response = await Client.PostAsJsonAsync("/api/users", new
+        {
+            username,
+            fullName,
+            password,
+            role,
+            isActive
+        });
+        response.EnsureSuccessStatusCode();
+        var user = await response.Content.ReadFromJsonAsync<UserResponse>()
+            ?? throw new InvalidOperationException("The create-user endpoint returned an empty response.");
+        return new TestAccount(user.Id, username, fullName, password, role, isActive);
+    }
+
+    public void AdvanceClock(TimeSpan by) => _clock.Advance(by);
 
     public async Task<BookingScenario> SeedAsync(int vehicleCount = 1, bool activeService = true)
     {
@@ -127,9 +201,24 @@ public sealed class BookingApiFactory : WebApplicationFactory<Program>, IAsyncLi
 
     private sealed class BookingClock : TimeProvider
     {
-        public override DateTimeOffset GetUtcNow() => new(2039, 1, 1, 0, 0, 0, TimeSpan.Zero);
+        private DateTimeOffset _utcNow = new(2039, 1, 1, 0, 0, 0, TimeSpan.Zero);
+
+        public override DateTimeOffset GetUtcNow() => _utcNow;
+
+        public void Advance(TimeSpan by) => _utcNow = _utcNow.Add(by);
     }
+
+    private sealed record CsrfTokenResponse(string Token);
+    private sealed record UserResponse(int Id);
 }
+
+public sealed record TestAccount(
+    int Id,
+    string Username,
+    string FullName,
+    string Password,
+    string Role,
+    bool IsActive);
 
 public sealed record BookingScenario(int CustomerId, int OtherCustomerId,
     int[] VehicleIds, int ServiceId, string ServiceName, DateTime StartUtc)

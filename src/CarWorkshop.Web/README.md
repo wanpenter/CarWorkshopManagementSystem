@@ -3,8 +3,8 @@
 React + Tailwind CSS, built locally with Vite. The frontend calls the ASP.NET Core API, which stores customer, vehicle, and appointment records in MySQL.
 
 The current interface is a working design draft based on the user's dashboard
-reference. It opens on a live workshop overview with sidebar navigation on desktop
-and a navigation menu on phones. See DESIGN.md for the visual direction and
+reference. Staff sign in before the live workshop overview opens. It uses sidebar
+navigation on desktop and a navigation menu on phones. See DESIGN.md for the visual direction and
 REDESIGN-VERIFICATION.md for the checks performed.
 
 From this directory:
@@ -42,7 +42,11 @@ assignments; previously assigned inactive mechanics remain visible in history.
 
 An appointment belongs to a booked customer and one of that customer's vehicles. The vehicle selector follows the selected customer. Existing appointments keep showing their original vehicle when that vehicle is later reassigned, so staff can still understand the historical booking. Appointments are cancelled through the `Cancelled` status; the frontend does not delete appointment history.
 
-The older `/api/cars` endpoint and its existing records remain in the backend for compatibility. This frontend uses `/api/customers`, `/api/vehicles`, and `/api/appointments`; it does not guess how legacy car rows should be assigned to customers. Authentication remains a future module, so the current backend should stay local.
+The older `/api/cars` endpoint and its existing records remain in the backend for
+compatibility and now require login too. The frontend does not guess how legacy
+car rows should be assigned to customers. See the repository's AUTHENTICATION.md
+for first-Admin setup and the Admin/Staff role matrix. User accounts is visible
+only to Admins; My account and password change are available to both roles.
 
 ## Verification
 

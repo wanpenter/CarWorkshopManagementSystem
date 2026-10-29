@@ -5,7 +5,7 @@ import {
   ApiError,
   appointmentEstimate,
   canonicalizeRegistration,
-  createApiClient,
+  createApiClient as createRealApiClient,
   getProblemFieldErrors,
   resolveInitialApiBaseUrl,
   saveApiBaseUrl,
@@ -18,6 +18,12 @@ import {
   validateCustomer,
   validateVehicle
 } from "../src/api.js";
+
+function createApiClient(baseUrl, options) {
+  return createRealApiClient(baseUrl, { ...options, fetchImpl: (url, init) => url.endsWith("/api/auth/csrf")
+    ? Promise.resolve(new Response(JSON.stringify({ token: "test-csrf" }), { headers: { "Content-Type": "application/json" } }))
+    : options.fetchImpl(url, init) });
+}
 
 test("API URL validation normalizes a path and rejects unsafe URL parts", () => {
   assert.deepEqual(

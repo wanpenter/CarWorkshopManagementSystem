@@ -276,6 +276,89 @@ namespace CarWorkshop.Infrastructure.Migrations
                     b.ToTable("Vehicles", (string)null);
                 });
 
+            modelBuilder.Entity("CarWorkshop.Domain.Entities.WorkshopSession", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasMaxLength(32)
+                        .HasColumnType("char(32)")
+                        .IsFixedLength();
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<DateTime>("ExpiresAtUtc")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<DateTime?>("RevokedAtUtc")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<int>("WorkshopUserId")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ExpiresAtUtc");
+
+                    b.HasIndex("WorkshopUserId", "RevokedAtUtc");
+
+                    b.ToTable("WorkshopSessions", (string)null);
+                });
+
+            modelBuilder.Entity("CarWorkshop.Domain.Entities.WorkshopUser", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<int>("FailedLoginCount")
+                        .HasColumnType("int");
+
+                    b.Property<string>("FullName")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("varchar(100)");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("tinyint(1)");
+
+                    b.Property<DateTime?>("LockoutEndUtc")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("NormalizedUsername")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)");
+
+                    b.Property<string>("PasswordHash")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("varchar(512)");
+
+                    b.Property<string>("Role")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("varchar(10)");
+
+                    b.Property<string>("Username")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("NormalizedUsername")
+                        .IsUnique();
+
+                    b.HasIndex("Role", "IsActive");
+
+                    b.ToTable("WorkshopUsers", (string)null);
+                });
+
             modelBuilder.Entity("CarWorkshop.Domain.Entities.Appointment", b =>
                 {
                     b.HasOne("CarWorkshop.Domain.Entities.Customer", "Customer")
@@ -332,6 +415,17 @@ namespace CarWorkshop.Infrastructure.Migrations
                     b.Navigation("Customer");
                 });
 
+            modelBuilder.Entity("CarWorkshop.Domain.Entities.WorkshopSession", b =>
+                {
+                    b.HasOne("CarWorkshop.Domain.Entities.WorkshopUser", "WorkshopUser")
+                        .WithMany("Sessions")
+                        .HasForeignKey("WorkshopUserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("WorkshopUser");
+                });
+
             modelBuilder.Entity("CarWorkshop.Domain.Entities.Appointment", b =>
                 {
                     b.Navigation("Services");
@@ -340,6 +434,11 @@ namespace CarWorkshop.Infrastructure.Migrations
             modelBuilder.Entity("CarWorkshop.Domain.Entities.Customer", b =>
                 {
                     b.Navigation("Vehicles");
+                });
+
+            modelBuilder.Entity("CarWorkshop.Domain.Entities.WorkshopUser", b =>
+                {
+                    b.Navigation("Sessions");
                 });
 #pragma warning restore 612, 618
         }

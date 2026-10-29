@@ -288,6 +288,11 @@ export function validateAppointment(values, { now = new Date(), includeStatus = 
 }
 
 const FIELD_NAMES = {
+  username: "username",
+  password: "password",
+  currentpassword: "currentPassword",
+  newpassword: "newPassword",
+  role: "role",
   fullname: "fullName",
   phone: "phone",
   address: "address",
@@ -345,7 +350,7 @@ async function readJsonResponse(response) {
 
 export function createApiClient(
   baseUrl,
-  { fetchImpl = globalThis.fetch, timeoutMs = DEFAULT_REQUEST_TIMEOUT_MS } = {}
+  { fetchImpl = globalThis.fetch, timeoutMs = DEFAULT_REQUEST_TIMEOUT_MS, onUnauthorized } = {}
 ) {
   const validation = validateApiBaseUrl(baseUrl);
   if (!validation.ok) throw new TypeError(validation.error);
@@ -364,10 +369,16 @@ export function createApiClient(
     }, timeoutMs);
 
     try {
+      const unsafe = !["GET", "HEAD", "OPTIONS"].includes(method);
+      const csrf = unsafe ? await request("/api/auth/csrf", { signal: controller.signal }) : null;
+      if (unsafe && typeof csrf?.token !== "string") throw new ApiError("The API did not provide a security token. Reload the page and try again.");
       const response = await fetchImpl(`${requestBaseUrl}${path}`, {
         method,
+        credentials: "include",
+        cache: "no-store",
         headers: {
           Accept: "application/json",
+          ...(unsafe ? { "X-CSRF-TOKEN": csrf.token } : {}),
           ...(body === undefined ? {} : { "Content-Type": "application/json" })
         },
         body: body === undefined ? undefined : JSON.stringify(body),
@@ -375,6 +386,7 @@ export function createApiClient(
       });
       const responseBody = await readJsonResponse(response);
       if (!response.ok) {
+        if (response.status === 401 && !["/api/auth/login", "/api/auth/me"].includes(path)) onUnauthorized?.();
         throw new ApiError(problemMessage(responseBody, response.status), {
           status: response.status,
           problem: responseBody
@@ -402,6 +414,14 @@ export function createApiClient(
 
   return Object.freeze({
     baseUrl: requestBaseUrl,
+    getCurrentUser: ({ signal } = {}) => request("/api/auth/me", { signal }),
+    login: (values) => request("/api/auth/login", { method: "POST", body: values }),
+    logout: () => request("/api/auth/logout", { method: "POST" }),
+    changePassword: (values) => request("/api/auth/change-password", { method: "POST", body: values }),
+    getUsers: ({ signal } = {}) => request("/api/users", { signal }),
+    addUser: (values) => request("/api/users", { method: "POST", body: values }),
+    updateUser: (id, values) => request(`/api/users/${id}`, { method: "PUT", body: values }),
+    resetUserPassword: (id, newPassword) => request(`/api/users/${id}/reset-password`, { method: "POST", body: { newPassword } }),
     getCustomers: ({ signal } = {}) => request("/api/customers", { signal }),
     getCustomer: (id, { signal } = {}) => request(`/api/customers/${id}`, { signal }),
     addCustomer: (customer, { signal } = {}) => request("/api/customers", { method: "POST", body: customer, signal }),

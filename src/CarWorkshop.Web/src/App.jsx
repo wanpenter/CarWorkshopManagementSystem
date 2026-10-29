@@ -15,6 +15,10 @@ import { Notice } from "./components/Shared.jsx";
 import VehiclesSection from "./components/VehiclesSection.jsx";
 import WorkshopShell from "./components/WorkshopShell.jsx";
 import DashboardSection from "./components/DashboardSection.jsx";
+import LoginScreen from "./components/LoginScreen.jsx";
+import AccountSection from "./components/AccountSection.jsx";
+import UsersSection from "./components/UsersSection.jsx";
+import "./auth.css";
 
 function App() {
   const [browserStorage] = useState(() => {
@@ -51,13 +55,35 @@ function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleteError, setDeleteError] = useState("");
+  const [sessionUser, setSessionUser] = useState(null);
+  const [authStatus, setAuthStatus] = useState("checking");
+  const [authError, setAuthError] = useState("");
+  const [authBusy, setAuthBusy] = useState(false);
 
   const mountedRef = useRef(true);
   const activeLoadRef = useRef({ revision: 0, controller: null });
   const settingsTriggerRef = useRef(null);
   const deleteTriggerRef = useRef(null);
 
-  const api = useMemo(() => (apiBaseUrl ? createApiClient(apiBaseUrl) : null), [apiBaseUrl]);
+  const clearSession = useCallback((message = "Your session ended. Sign in again.") => {
+    activeLoadRef.current.controller?.abort();
+    activeLoadRef.current.revision += 1;
+    setSessionUser(null);
+    setAuthStatus("signedOut");
+    setAuthError(message);
+    setCustomers([]);
+    setVehicles([]);
+    setAppointments([]);
+    setServices([]);
+    setMechanics([]);
+    setOwnerFilter("");
+    setActiveTab("dashboard");
+    setDeleteTarget(null);
+    setSettingsOpen(false);
+    setNotice(null);
+    setStatus("disconnected");
+  }, []);
+  const api = useMemo(() => (apiBaseUrl ? createApiClient(apiBaseUrl, { onUnauthorized: clearSession }) : null), [apiBaseUrl, clearSession]);
   const loading = status === "loading";
   const busy = loading || mutating;
 
@@ -132,9 +158,84 @@ function App() {
     }
   }, [api]);
 
+  const checkSession = useCallback(async (signal) => {
+    clearSession("");
+    setAuthStatus("checking");
+    setAuthError("");
+    setSessionUser(null);
+    try {
+      if (!api) throw new Error("Set your workshop API address to connect.");
+      const user = await api.getCurrentUser({ signal });
+      if (signal?.aborted) return;
+      setSessionUser(user);
+      setAuthStatus("ready");
+    } catch (error) {
+      if (signal?.aborted) return;
+      setAuthStatus(error.status === 401 ? "signedOut" : "error");
+      setAuthError(error.status === 401 ? "" : error.message);
+    }
+  }, [api, clearSession]);
+
   useEffect(() => {
-    void loadRecords();
-  }, [loadRecords]);
+    const controller = new AbortController();
+    void checkSession(controller.signal);
+    return () => controller.abort();
+  }, [checkSession]);
+
+  useEffect(() => {
+    if (sessionUser) void loadRecords();
+  }, [loadRecords, sessionUser]);
+
+  useEffect(() => {
+    if (!sessionUser || !api) return undefined;
+    let checking = false;
+    const controller = new AbortController();
+    const verify = async () => {
+      if (checking || document.visibilityState === "hidden") return;
+      checking = true;
+      try {
+        const latest = await api.getCurrentUser({ signal: controller.signal });
+        if (!controller.signal.aborted && latest.role !== sessionUser.role) clearSession("Your account access changed. Sign in again.");
+      } catch (error) {
+        if (!controller.signal.aborted && error.status === 401) clearSession();
+      } finally { checking = false; }
+    };
+    const timer = window.setInterval(verify, 60000);
+    window.addEventListener("focus", verify);
+    document.addEventListener("visibilitychange", verify);
+    return () => { controller.abort(); window.clearInterval(timer); window.removeEventListener("focus", verify); document.removeEventListener("visibilitychange", verify); };
+  }, [sessionUser, api, clearSession]);
+
+  async function login(values) {
+    if (!api || authBusy) throw new Error("Connect to the workshop API before signing in.");
+    setAuthBusy(true);
+    try {
+      const user = await api.login(values);
+      setAuthError("");
+      setSessionUser(user);
+      setAuthStatus("ready");
+    } finally { setAuthBusy(false); }
+  }
+
+  async function logout() {
+    if (!api || authBusy || mutating) return;
+    setAuthBusy(true);
+    try {
+      await api.logout();
+      clearSession("");
+    } catch (error) {
+      if (error.status !== 401) showNotice(`Sign out failed: ${error.message} Try again.`, "error");
+    } finally { setAuthBusy(false); }
+  }
+
+  async function changePassword(values) {
+    if (!api || authBusy || mutating) throw new Error("Wait for the current change to finish.");
+    setAuthBusy(true);
+    try {
+      await api.changePassword(values);
+      clearSession("Password changed. Sign in with your new password.");
+    } finally { setAuthBusy(false); }
+  }
 
   const refreshAfterWrite = useCallback(async (successMessage) => {
     const refresh = await loadRecords({ quiet: true });
@@ -233,10 +334,7 @@ function App() {
     setApiBaseUrl(validation.value);
     closeSettings();
     if (!storageResult.ok) showNotice(storageResult.error, "error");
-    if (!changed) {
-      const refresh = await loadRecords();
-      if (refresh.ok && storageResult.ok) showNotice("API settings saved and records reloaded.");
-    }
+    if (!changed) await checkSession();
     return { ok: true };
   }
 
@@ -293,7 +391,7 @@ function App() {
 
   return (
     <>
-      <WorkshopShell activeTab={activeTab} counts={{ customers: customers.length, vehicles: vehicles.length, appointments: appointments.length, services: services.length, mechanics: mechanics.length }} status={status} mutating={mutating} onNavigate={setActiveTab} onOpenSettings={openSettings}>
+      {sessionUser && authStatus === "ready" ? <WorkshopShell user={sessionUser} onLogout={logout} activeTab={activeTab} counts={{ customers: customers.length, vehicles: vehicles.length, appointments: appointments.length, services: services.length, mechanics: mechanics.length }} status={status} mutating={mutating || authBusy} onNavigate={setActiveTab} onOpenSettings={openSettings}>
       <main id="main-content" tabIndex={-1}>
         {notice && <div className="notice-container"><Notice notice={notice} /></div>}
         <DashboardSection active={activeTab === "dashboard"} status={status} errorMessage={errorMessage} customers={customers} vehicles={vehicles} services={services} mechanics={mechanics} appointments={appointments} busy={busy} onRetry={loadRecords} onOpenSettings={openSettings} onNavigate={setActiveTab} />
@@ -354,10 +452,12 @@ function App() {
           onSave={saveService}
         />
         <MechanicsSection active={activeTab === "mechanics"} status={status} errorMessage={errorMessage} mechanics={mechanics} busy={busy} onOpenSettings={openSettings} onRetry={loadRecords} onSave={saveMechanic} />
+        {sessionUser.role === "Admin" && <UsersSection key={sessionUser.id} active={activeTab === "users"} currentUser={sessionUser} api={api} onSessionExpired={clearSession} />}
+        <AccountSection active={activeTab === "account"} user={sessionUser} busy={authBusy || mutating} onChangePassword={changePassword} />
       </main>
-      </WorkshopShell>
+      </WorkshopShell> : <LoginScreen status={authStatus} errorMessage={authError} busy={authBusy} onLogin={login} onRetry={() => void checkSession()} onOpenSettings={openSettings} />}
 
-      <SettingsDialog open={settingsOpen} initialValue={apiBaseUrl} busy={mutating} onClose={closeSettings} onSave={saveSettings} />
+      <SettingsDialog open={settingsOpen} initialValue={apiBaseUrl} busy={mutating || authBusy} onClose={closeSettings} onSave={saveSettings} />
       <DeleteDialog target={deleteTarget} error={deleteError} busy={mutating} onClose={closeDeleteDialog} onConfirm={confirmDelete} />
     </>
   );

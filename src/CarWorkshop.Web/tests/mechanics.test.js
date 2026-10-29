@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { ApiError, createApiClient, validateMechanic } from "../src/api.js";
+import { ApiError, createApiClient as createRealApiClient, validateMechanic } from "../src/api.js";
+
+function createApiClient(baseUrl, options) {
+  return createRealApiClient(baseUrl, { ...options, fetchImpl: (url, init) => url.endsWith("/api/auth/csrf")
+    ? Promise.resolve(new Response(JSON.stringify({ token: "test-csrf" }), { headers: { "Content-Type": "application/json" } }))
+    : options.fetchImpl(url, init) });
+}
 
 test("mechanic input follows backend name and phone limits", () => {
   assert.deepEqual(validateMechanic({ fullName: "  Ali  ", phone: " +60 12-345 6789 ", isActive: false }).values, { fullName: "Ali", phone: "+60 12-345 6789", isActive: false });

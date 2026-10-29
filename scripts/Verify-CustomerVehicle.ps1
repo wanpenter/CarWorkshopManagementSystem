@@ -1,15 +1,28 @@
-param([string]$ApiBaseUrl = 'http://localhost:5272')
+param([string]$ApiBaseUrl = 'http://localhost:5272', [PSCredential]$Credential)
 
 $ErrorActionPreference = 'Stop'
 $base = $ApiBaseUrl.TrimEnd('/')
 $runTag = 'Module QA ' + [guid]::NewGuid().ToString('N').Substring(0, 8)
 $customers = [System.Collections.Generic.List[int]]::new()
 $vehicles = [System.Collections.Generic.List[int]]::new()
-$http = [System.Net.Http.HttpClient]::new()
+if (-not $Credential) {
+    if (-not $env:WORKSHOP_VERIFY_USERNAME -or -not $env:WORKSHOP_VERIFY_PASSWORD) {
+        throw 'Pass -Credential (Get-Credential) or set WORKSHOP_VERIFY_USERNAME and WORKSHOP_VERIFY_PASSWORD for an active workshop account.'
+    }
+    $Credential = [PSCredential]::new($env:WORKSHOP_VERIFY_USERNAME, (ConvertTo-SecureString $env:WORKSHOP_VERIFY_PASSWORD -AsPlainText -Force))
+}
+$session = [Microsoft.PowerShell.Commands.WebRequestSession]::new()
+$handler = [System.Net.Http.HttpClientHandler]::new()
+$handler.CookieContainer = $session.Cookies
+$http = [System.Net.Http.HttpClient]::new($handler)
 $http.Timeout = [TimeSpan]::FromSeconds(15)
 
 function Send-Api([string]$Method, [string]$Route, $Body, [int]$ExpectedStatus) {
-    $params = @{ Method = $Method; Uri = "$base$Route"; SkipHttpErrorCheck = $true; TimeoutSec = 15 }
+    $params = @{ Method = $Method; Uri = "$base$Route"; SkipHttpErrorCheck = $true; TimeoutSec = 15; WebSession = $session }
+    if ($Method -notin @('GET', 'HEAD', 'OPTIONS')) {
+        $csrf = Invoke-RestMethod -Uri "$base/api/auth/csrf" -WebSession $session
+        $params.Headers = @{ 'X-CSRF-TOKEN' = $csrf.token }
+    }
     if ($null -ne $Body) {
         $params.ContentType = 'application/json'
         $params.Body = $Body | ConvertTo-Json -Depth 8 -Compress
@@ -26,6 +39,7 @@ function Assert-Equal($Actual, $Expected, [string]$Description) {
 }
 
 try {
+    Send-Api POST '/api/auth/login' @{ username = $Credential.UserName; password = $Credential.GetNetworkCredential().Password } 200 | Out-Null
     $legacyBefore = @(Send-Api GET '/api/cars' $null 200)
     foreach ($suffix in @('A', 'B')) {
         $customer = Send-Api POST '/api/customers' @{ fullName = "$runTag $suffix"; phone = '+60000000000'; address = 'Temporary verification fixture' } 201
@@ -82,6 +96,8 @@ try {
     $contentA = [System.Net.Http.StringContent]::new($raceJson, [System.Text.Encoding]::UTF8, 'application/json')
     $contentB = [System.Net.Http.StringContent]::new($raceJson, [System.Text.Encoding]::UTF8, 'application/json')
     try {
+        $csrf = Invoke-RestMethod -Uri "$base/api/auth/csrf" -WebSession $session
+        $http.DefaultRequestHeaders.Add('X-CSRF-TOKEN', [string]$csrf.token)
         $requestA = $http.PostAsync("$base/api/vehicles", $contentA)
         $requestB = $http.PostAsync("$base/api/vehicles", $contentB)
         $responseA = $requestA.GetAwaiter().GetResult()
@@ -119,5 +135,6 @@ try {
             Send-Api DELETE "/api/customers/$id" $null 204 | Out-Null
         }
         Write-Output 'Temporary verification records removed.'
+        Send-Api POST '/api/auth/logout' $null 204 | Out-Null
     } finally { $http.Dispose() }
 }

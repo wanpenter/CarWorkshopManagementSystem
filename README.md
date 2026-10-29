@@ -2,6 +2,10 @@
 
 Local development stack: React, Tailwind CSS, ASP.NET Core, Entity Framework Core, and MySQL.
 
+Staff now sign in before viewing workshop records. Admins also manage login
+accounts, roles, active status, and password resets. Read [AUTHENTICATION.md](AUTHENTICATION.md)
+for first-Admin setup, the role matrix, session behavior, and deployment requirements.
+
 Staff can create and edit customers, register vehicles under an owner, change
 ownership, and search and filter records. Each vehicle has a unique registration
 number. A customer with vehicles cannot be deleted until those vehicles are moved
@@ -100,14 +104,14 @@ assigning staff. The API rejects overlapping jobs and the editor displays the
 conflict while keeping the booking open. Assigned names appear in the appointment
 list and remain visible in completed records.
 
-Authentication and actual service history are later modules. Run this
-unauthenticated version only in a trusted local environment.
+Login and Admin/Staff access control protect the API and frontend. Actual service
+history remains a later module. Configure the first Admin before normal use.
 
 ## Verify
 
 ```powershell
 dotnet test tests/CarWorkshop.UnitTests/CarWorkshop.UnitTests.csproj -m:1
-pwsh -NoProfile -File scripts/Verify-CustomerVehicle.ps1
+pwsh -NoProfile -File scripts/Verify-CustomerVehicle.ps1 -Credential (Get-Credential)
 Set-Location src/CarWorkshop.Web
 npm test
 npm run build
@@ -125,4 +129,7 @@ create their own temporary database. GitHub Actions runs the domain tests, real
 MySQL integration tests, frontend tests, and production builds on pushes and pull
 requests. Backend test reports are attached to each workflow run.
 
-Development CORS allows only the local frontend origins on port 4173. The current API has no authentication and is intended for local development. Its HTTPS profile requires a valid trusted developer certificate; the commands above use the HTTP development profile.
+Development CORS allows only configured local frontend origins on port 4173, with
+cookie credentials and the CSRF header. The HTTPS profile requires a trusted
+developer certificate; the commands above use the HTTP development profile.
+Use HTTPS and the same site for frontend/API when deploying.

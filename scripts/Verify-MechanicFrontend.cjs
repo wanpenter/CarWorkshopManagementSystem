@@ -10,7 +10,10 @@ async function main() {
     page.on('pageerror', (error) => errors.push(error.message));
     await page.addInitScript(() => localStorage.setItem('car-workshop-api-base-url', 'http://127.0.0.1:5273'));
     await page.goto('http://127.0.0.1:4173');
-    await page.getByText('API connected', { exact: true }).waitFor();
+    await page.getByLabel('Username', { exact: true }).fill(process.env.WORKSHOP_ADMIN_USERNAME);
+    await page.getByLabel('Password', { exact: true }).fill(process.env.WORKSHOP_ADMIN_PASSWORD);
+    await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+    await page.getByText('API connected', { exact: true }).waitFor({ state: 'attached' });
     const section = (name) => page.locator(`section[aria-labelledby="${name}-title"]`);
     const tab = async (name) => {
       if (!await page.locator(`#${name}-nav`).isVisible()) await page.getByRole('button', { name: 'Open navigation', exact: true }).click();
@@ -44,7 +47,7 @@ async function main() {
     await mechanics.getByRole('button', { name: 'Edit mechanic Verification Mechanic Updated', exact: true }).click();
     await mechanics.getByRole('button', { name: 'Cancel edit', exact: true }).click();
     await mechanics.getByRole('button', { name: 'Reload records', exact: true }).click();
-    await page.getByText('API connected', { exact: true }).waitFor();
+    await page.getByText('API connected', { exact: true }).waitFor({ state: 'attached' });
     await page.screenshot({ path: path.resolve('src/CarWorkshop.Web/.verification/mechanics-desktop.png'), fullPage: true });
 
     await tab('customers');
@@ -165,7 +168,7 @@ async function main() {
     await mechanics.getByRole('button', { name: 'Try connection again', exact: true }).click();
     await mechanics.getByText('Loading mechanics', { exact: true }).waitFor();
     releaseLoading();
-    await page.getByText('API connected', { exact: true }).waitFor();
+    await page.getByText('API connected', { exact: true }).waitFor({ state: 'attached' });
     assert.deepEqual(errors, [], 'Browser errors');
     console.log('PASS: real customer → vehicle → booking → confirmation → mechanic assignment → completed appointment, persisted in isolated MySQL.');
     console.log('PASS: mechanic create/edit/activate/deactivate, search/filter/reload/cancel, conflict recovery, unsaved-booking guard, desktop/mobile layouts, no browser errors.');

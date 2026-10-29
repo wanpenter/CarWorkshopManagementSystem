@@ -25,6 +25,10 @@ public class CarWorkshopDbContext : DbContext
 
     public DbSet<AppointmentService> AppointmentServices { get; set; }
 
+    public DbSet<WorkshopUser> WorkshopUsers { get; set; }
+
+    public DbSet<WorkshopSession> WorkshopSessions { get; set; }
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);

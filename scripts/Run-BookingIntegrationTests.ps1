@@ -38,6 +38,8 @@ $taskApiProcess = $null
 $taskPreviousApiConnection = $env:ConnectionStrings__DefaultConnection
 $taskPreviousEnvironment = $env:ASPNETCORE_ENVIRONMENT
 $taskPreviousBrowserModule = $env:WORKSHOP_PLAYWRIGHT_MODULE
+$taskPreviousAdminUsername = $env:WORKSHOP_ADMIN_USERNAME
+$taskPreviousAdminPassword = $env:WORKSHOP_ADMIN_PASSWORD
 
 Push-Location $taskRoot
 try {
@@ -77,6 +79,10 @@ try {
         $env:WORKSHOP_PLAYWRIGHT_MODULE = $PlaywrightModule
         & dotnet ef database update --project src/CarWorkshop.Infrastructure --startup-project src/CarWorkshop.Api --configuration Release --no-build *> (Join-Path $taskRunDirectory 'migrations.log')
         if ($LASTEXITCODE -ne 0) { throw 'Could not migrate the frontend test database.' }
+        $env:WORKSHOP_ADMIN_USERNAME = 'verification-admin'
+        $env:WORKSHOP_ADMIN_PASSWORD = [Guid]::NewGuid().ToString('N') + 'aA1!'
+        & dotnet run --project src/CarWorkshop.Api/CarWorkshop.Api.csproj --configuration Release --no-build --no-launch-profile -- --bootstrap-admin *> (Join-Path $taskRunDirectory 'bootstrap.log')
+        if ($LASTEXITCODE -ne 0) { throw 'Could not bootstrap the isolated verification administrator.' }
         $taskApiProcess = Start-Process -FilePath dotnet -WindowStyle Hidden -PassThru -ArgumentList @(
             'run', '--project', 'src/CarWorkshop.Api/CarWorkshop.Api.csproj', '--configuration', 'Release',
             '--no-build', '--no-launch-profile', '--urls', 'http://127.0.0.1:5273'
@@ -93,6 +99,8 @@ try {
         if (-not $taskApiReady) { throw 'Verification API did not become ready.' }
         & node scripts/Verify-MechanicFrontend.cjs
         if ($LASTEXITCODE -ne 0) { throw 'Mechanic frontend verification failed.' }
+        & node scripts/Verify-AuthenticationFrontend.cjs
+        if ($LASTEXITCODE -ne 0) { throw 'Authentication frontend verification failed.' }
     }
 }
 finally {
@@ -112,6 +120,8 @@ finally {
         $env:ConnectionStrings__DefaultConnection = $taskPreviousApiConnection
         $env:ASPNETCORE_ENVIRONMENT = $taskPreviousEnvironment
         $env:WORKSHOP_PLAYWRIGHT_MODULE = $taskPreviousBrowserModule
+        $env:WORKSHOP_ADMIN_USERNAME = $taskPreviousAdminUsername
+        $env:WORKSHOP_ADMIN_PASSWORD = $taskPreviousAdminPassword
         Pop-Location
         if (Test-Path -LiteralPath $taskInit) { Remove-Item -LiteralPath $taskInit -Force }
         $taskAllowedRoot = [IO.Path]::GetFullPath((Join-Path $taskRoot '.build-temp')) + [IO.Path]::DirectorySeparatorChar
