@@ -10,6 +10,7 @@ export default function MechanicsSection({ active, status, errorMessage, mechani
   const [selectedId, setSelectedId] = useState(null);
   const [form, setForm] = useState(emptyForm);
   const [errors, setErrors] = useState({});
+  const editorPanelRef = useRef(null);
   const nameRef = useRef(null);
   const phoneRef = useRef(null);
   const visible = mechanics.filter((mechanic) => (showInactive || mechanic.isActive) && `${mechanic.fullName} ${mechanic.phone}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()));
@@ -30,7 +31,8 @@ export default function MechanicsSection({ active, status, errorMessage, mechani
     setSelectedId(Number(mechanic.id));
     setForm({ fullName: mechanic.fullName, phone: mechanic.phone, isActive: mechanic.isActive });
     setErrors({});
-    window.requestAnimationFrame(() => nameRef.current?.focus());
+    editorPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    window.requestAnimationFrame(() => nameRef.current?.focus({ preventScroll: true }));
   }
 
   async function submit(event) {
@@ -59,7 +61,7 @@ export default function MechanicsSection({ active, status, errorMessage, mechani
         <div className="records-panel">
           <div className="records-heading">
             <div><h1 id="mechanics-title" className="page-title" tabIndex={-1}>Mechanics</h1><p className="mt-3 max-w-[65ch] text-ink-soft">Manage workshop staff and who can take new assignments.</p></div>
-            <button className="button button-secondary shrink-0 max-[500px]:w-full" type="button" disabled={busy || status !== "ready"} onClick={() => void onRetry()}>Reload records</button>
+            <button className="button button-secondary shrink-0 max-[500px]:w-full" type="button" disabled={busy || status !== "ready"} onClick={() => void onRetry()}>{status === "loading" ? "Reloading..." : "Reload records"}</button>
           </div>
           <div className="appointment-filters service-filters">
             <div><label className="mb-2 block font-bold" htmlFor="mechanic-search">Search mechanics</label><input id="mechanic-search" className="control-input" type="search" placeholder="Name or phone" value={query} disabled={status !== "ready"} onChange={(event) => setQuery(event.target.value)} /></div>
@@ -79,7 +81,7 @@ export default function MechanicsSection({ active, status, errorMessage, mechani
                       <div className="grid gap-3 desk:hidden">{visible.map((mechanic) => <article key={mechanic.id} className={`record-card border-paper-line ${selectedId === Number(mechanic.id) ? "bg-selected" : "bg-paper-raised"}`}><h2 className="font-display text-xl font-bold">{mechanic.fullName}</h2><MobileDatum label="Phone">{mechanic.phone}</MobileDatum><MobileDatum label="Status">{mechanic.isActive ? "Active" : "Inactive"}</MobileDatum><div className="mt-2 border-t border-paper-line pt-2">{actions(mechanic)}</div></article>)}</div>
                     </>}
         </div>
-        <aside className="editor-panel" aria-labelledby="mechanic-editor-title">
+        <aside ref={editorPanelRef} className="editor-panel" aria-labelledby="mechanic-editor-title">
           <div className="mb-7"><h2 id="mechanic-editor-title" className="editor-title">{selectedId === null ? "Add a mechanic" : "Edit mechanic"}</h2><p className="mt-2 text-ink-soft">Inactive mechanics cannot receive new assignments. Existing assignments and history are kept.</p></div>
           <form onSubmit={submit} noValidate>
             <fieldset disabled={busy || status !== "ready"} className="m-0 min-w-0 border-0 p-0">
@@ -90,6 +92,7 @@ export default function MechanicsSection({ active, status, errorMessage, mechani
               <div className="form-actions"><button className="button button-primary" type="submit">{busy ? "Saving..." : selectedId === null ? "Add mechanic" : "Save changes"}</button>{selectedId !== null && <button className="button button-quiet" type="button" onClick={reset}>Cancel edit</button>}</div>
             </fieldset>
           </form>
+          {status !== "ready" && <p className="mt-6 border-t border-paper-line pt-4 text-ink-soft">The editor unlocks after the API connects successfully.</p>}
         </aside>
       </div>
     </section>

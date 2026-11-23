@@ -25,6 +25,19 @@ export default function MechanicAssignment({ appointment, mechanics, busy, ready
     }
   }
 
+  const hasValidActiveSelection = activeMechanics.some((mechanic) => Number(mechanic.id) === Number(mechanicId));
+  const unchangedSelection = Boolean(mechanicId) && Number(mechanicId) === Number(appointment.mechanicId);
+  const submitDisabled = !hasValidActiveSelection || unchangedSelection;
+  const submitReason = busy || !ready || dirty
+    ? ""
+    : !mechanicId
+      ? "Choose a mechanic above to enable assignment."
+      : unchangedSelection
+        ? "This mechanic is already assigned. Choose another mechanic to replace them."
+        : !hasValidActiveSelection
+          ? "This mechanic is inactive. Choose an active mechanic to assign."
+          : "";
+
   return <section className="mt-8 border-t border-paper-line pt-6" aria-labelledby="assignment-title">
     <h2 id="assignment-title" className="editor-title">Mechanic assignment</h2>
     <p className="mt-2 mb-4 text-ink-soft">Assigned: <strong className="text-ink">{appointment.mechanicName || "Unassigned"}{assigned?.isActive === false ? " (inactive)" : ""}</strong></p>
@@ -37,8 +50,9 @@ export default function MechanicAssignment({ appointment, mechanics, busy, ready
               {assigned?.isActive === false && <option value={assigned.id} disabled>{assigned.fullName} (inactive)</option>}
               {activeMechanics.map((mechanic) => <option key={mechanic.id} value={mechanic.id}>{mechanic.fullName}</option>)}
             </SelectField>
-            <button className="button button-primary w-full" type="submit" disabled={!activeMechanics.some((mechanic) => Number(mechanic.id) === Number(mechanicId)) || Number(mechanicId) === Number(appointment.mechanicId)}>{busy ? "Saving..." : appointment.mechanicId ? "Replace mechanic" : "Assign mechanic"}</button>
+            <button className="button button-primary w-full" type="submit" disabled={submitDisabled}>{busy ? "Saving..." : appointment.mechanicId ? "Replace mechanic" : "Assign mechanic"}</button>
           </fieldset>
+          {submitReason && <p className="field-lock-hint" role="status">{submitReason}</p>}
           {dirty && <p className="mt-3 text-ink-soft" role="status">Save or cancel your booking changes before assigning a mechanic.</p>}
         </form>}
   </section>;

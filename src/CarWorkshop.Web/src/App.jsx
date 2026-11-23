@@ -222,7 +222,7 @@ function App() {
     setAuthBusy(true);
     try {
       await api.logout();
-      clearSession("");
+      clearSession("You have been signed out.");
     } catch (error) {
       if (error.status !== 401) showNotice(`Sign out failed: ${error.message} Try again.`, "error");
     } finally { setAuthBusy(false); }
@@ -236,6 +236,11 @@ function App() {
       clearSession("Password changed. Sign in with your new password.");
     } finally { setAuthBusy(false); }
   }
+
+  const reloadRecords = useCallback(async () => {
+    const result = await loadRecords();
+    if (result.ok) showNotice("Records refreshed.");
+  }, [loadRecords, showNotice]);
 
   const refreshAfterWrite = useCallback(async (successMessage) => {
     const refresh = await loadRecords({ quiet: true });
@@ -279,13 +284,27 @@ function App() {
     }
   }
 
-  async function saveService(id, values) {
+  async function recordService(id, values) {
+    if (!api || mutating) throw new Error("Another change is still in progress.");
+    setMutating(true);
+    try {
+      const saved = await api.recordService(id, values);
+      if (mountedRef.current) {
+        setAppointments((current) => current.map((appointment) => appointment.id === saved.id ? saved : appointment));
+      }
+      await refreshAfterWrite("Service record saved.");
+    } finally {
+      if (mountedRef.current) setMutating(false);
+    }
+  }
+
+  async function saveService(id, values, { message } = {}) {
     if (!api || mutating) throw new Error("Another change is still in progress.");
     setMutating(true);
     try {
       if (id === null) await api.addService(values);
       else await api.updateService(id, values);
-      await refreshAfterWrite(id === null ? "Service added." : "Service changes saved.");
+      await refreshAfterWrite(message || (id === null ? "Service added." : "Service changes saved."));
     } finally {
       if (mountedRef.current) setMutating(false);
     }
@@ -334,6 +353,7 @@ function App() {
     setApiBaseUrl(validation.value);
     closeSettings();
     if (!storageResult.ok) showNotice(storageResult.error, "error");
+    else showNotice("API address updated.");
     if (!changed) await checkSession();
     return { ok: true };
   }
@@ -364,9 +384,11 @@ function App() {
       await refreshAfterWrite(target.type === "customer" ? "Customer deleted." : "Vehicle deleted.");
       window.requestAnimationFrame(() => deleteTriggerRef.current?.focus());
     } catch (error) {
-      const message = target.type === "customer" && error instanceof ApiError && error.status === 409
-        ? "This customer still has registered vehicles. Reassign or delete those vehicles first."
-        : error.message;
+      const message = error instanceof ApiError && error.message
+        ? error.message
+        : target.type === "customer" && error instanceof ApiError && error.status === 409
+          ? "This customer cannot be deleted while vehicles or appointments are linked to them."
+          : error.message;
       if (mountedRef.current) setDeleteError(message);
     } finally {
       if (mountedRef.current) setMutating(false);
@@ -391,10 +413,10 @@ function App() {
 
   return (
     <>
-      {sessionUser && authStatus === "ready" ? <WorkshopShell user={sessionUser} onLogout={logout} activeTab={activeTab} counts={{ customers: customers.length, vehicles: vehicles.length, appointments: appointments.length, services: services.length, mechanics: mechanics.length }} status={status} mutating={mutating || authBusy} onNavigate={setActiveTab} onOpenSettings={openSettings}>
+      {sessionUser && authStatus === "ready" ? <WorkshopShell user={sessionUser} onLogout={logout} signingOut={authBusy} activeTab={activeTab} counts={{ customers: customers.length, vehicles: vehicles.length, appointments: appointments.length, services: services.length, mechanics: mechanics.length }} status={status} mutating={mutating || authBusy} onNavigate={setActiveTab} onOpenSettings={openSettings}>
       <main id="main-content" tabIndex={-1}>
-        {notice && <div className="notice-container"><Notice notice={notice} /></div>}
-        <DashboardSection active={activeTab === "dashboard"} status={status} errorMessage={errorMessage} customers={customers} vehicles={vehicles} services={services} mechanics={mechanics} appointments={appointments} busy={busy} onRetry={loadRecords} onOpenSettings={openSettings} onNavigate={setActiveTab} />
+        {notice && <div className="notice-container"><Notice notice={notice} onDismiss={() => setNotice(null)} /></div>}
+        <DashboardSection active={activeTab === "dashboard"} status={status} errorMessage={errorMessage} customers={customers} vehicles={vehicles} services={services} mechanics={mechanics} appointments={appointments} busy={busy} onRetry={reloadRecords} onOpenSettings={openSettings} onNavigate={setActiveTab} />
         <CustomersSection
           active={activeTab === "customers"}
           status={status}
@@ -402,7 +424,7 @@ function App() {
           customers={customers}
           busy={busy}
           onOpenSettings={openSettings}
-          onRetry={loadRecords}
+          onRetry={reloadRecords}
           onSave={saveCustomer}
           onDelete={askToDelete}
           onViewVehicles={showCustomerVehicles}
@@ -413,11 +435,12 @@ function App() {
           errorMessage={errorMessage}
           customers={customers}
           vehicles={vehicles}
+          appointments={appointments}
           ownerFilter={ownerFilter}
           busy={busy}
           onOwnerFilterChange={setOwnerFilter}
           onOpenSettings={openSettings}
-          onRetry={loadRecords}
+          onRetry={reloadRecords}
           onSave={saveVehicle}
           onDelete={askToDelete}
           onAddCustomer={goToCustomers}
@@ -432,10 +455,11 @@ function App() {
           services={services}
           mechanics={mechanics}
           onAssignMechanic={assignMechanic}
+          onRecordService={recordService}
           onAddMechanic={() => { setActiveTab("mechanics"); window.requestAnimationFrame(() => document.getElementById("mechanics-nav")?.focus()); }}
           busy={busy}
           onOpenSettings={openSettings}
-          onRetry={loadRecords}
+          onRetry={reloadRecords}
           onSave={saveAppointment}
           onAddCustomer={goToCustomers}
           onAddVehicle={goToVehicles}
@@ -448,10 +472,11 @@ function App() {
           services={services}
           busy={busy}
           onOpenSettings={openSettings}
-          onRetry={loadRecords}
+          onRetry={reloadRecords}
           onSave={saveService}
+          onError={(message) => showNotice(message, "error")}
         />
-        <MechanicsSection active={activeTab === "mechanics"} status={status} errorMessage={errorMessage} mechanics={mechanics} busy={busy} onOpenSettings={openSettings} onRetry={loadRecords} onSave={saveMechanic} />
+        <MechanicsSection active={activeTab === "mechanics"} status={status} errorMessage={errorMessage} mechanics={mechanics} busy={busy} onOpenSettings={openSettings} onRetry={reloadRecords} onSave={saveMechanic} />
         {sessionUser.role === "Admin" && <UsersSection key={sessionUser.id} active={activeTab === "users"} currentUser={sessionUser} api={api} onSessionExpired={clearSession} />}
         <AccountSection active={activeTab === "account"} user={sessionUser} busy={authBusy || mutating} onChangePassword={changePassword} />
       </main>

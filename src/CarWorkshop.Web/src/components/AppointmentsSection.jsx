@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import MechanicAssignment from "./MechanicAssignment.jsx";
+import { AppointmentServiceRecord } from "./ServiceRecord.jsx";
 import {
   APPOINTMENT_STATUSES,
   appointmentEstimate,
@@ -90,6 +91,7 @@ export default function AppointmentsSection({
   services,
   mechanics,
   onAssignMechanic,
+  onRecordService,
   onAddMechanic,
   busy,
   onOpenSettings,
@@ -105,6 +107,8 @@ export default function AppointmentsSection({
   const [selectedId, setSelectedId] = useState(null);
   const [form, setForm] = useState(() => makeBlankAppointment());
   const [errors, setErrors] = useState({});
+  const editorPanelRef = useRef(null);
+  const editorTitleRef = useRef(null);
   const customerRef = useRef(null);
   const vehicleRef = useRef(null);
   const dateRef = useRef(null);
@@ -174,6 +178,11 @@ export default function AppointmentsSection({
 
   const legacyWithoutServices = selectedAppointment && !selectedAppointment.services?.length;
   const terminalAppointment = ["Completed", "Cancelled", "Rejected"].includes(selectedAppointment?.status) || Boolean(legacyWithoutServices);
+  const readOnlyReason = !terminalAppointment
+    ? ""
+    : legacyWithoutServices
+      ? "This earlier booking has no catalogue service snapshot, so its details are locked as read-only history."
+      : `${statusLabels[selectedAppointment.status]} appointments are locked as read-only workshop history and cannot be edited.`;
   const bookingDirty = selectedAppointment && (
     Number(form.customerId) !== Number(selectedAppointment.customerId) ||
     Number(form.vehicleId) !== Number(selectedAppointment.vehicleId) ||
@@ -250,7 +259,14 @@ export default function AppointmentsSection({
       status: APPOINTMENT_STATUSES.includes(appointment.status) ? appointment.status : "Requested"
     });
     setErrors({});
-    window.requestAnimationFrame(() => customerRef.current?.focus({ preventScroll: true }));
+    editorPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    window.requestAnimationFrame(() => {
+      if (appointment.status === "Completed" || ["Cancelled", "Rejected"].includes(appointment.status) || !appointment.services?.length) {
+        editorTitleRef.current?.focus({ preventScroll: true });
+      } else {
+        customerRef.current?.focus({ preventScroll: true });
+      }
+    });
   }
 
   async function submitAppointment(event) {
@@ -293,7 +309,7 @@ export default function AppointmentsSection({
               <p className="mt-3 max-w-[65ch] text-ink-soft">Book workshop visits with service estimates. New requests wait for staff review.</p>
             </div>
             <button className="button button-secondary shrink-0 max-[500px]:w-full" type="button" disabled={busy || connectionStatus !== "ready"} onClick={() => void onRetry()}>
-              {connectionStatus === "loading" ? "Loading..." : "Reload records"}
+              {connectionStatus === "loading" ? "Reloading..." : "Reload records"}
             </button>
           </div>
 
@@ -340,7 +356,7 @@ export default function AppointmentsSection({
           />
         </div>
 
-        <aside className="editor-panel" aria-labelledby="appointment-editor-title">
+        <aside ref={editorPanelRef} className="editor-panel" aria-labelledby="appointment-editor-title">
           {noBookingFoundation ? (
             customers.length === 0 ? (
               <StatePanel title="Add a customer first" body="An appointment needs a customer and one of their registered vehicles.">
@@ -358,17 +374,27 @@ export default function AppointmentsSection({
           ) : (
             <>
               <div className="mb-7">
-                <h2 id="appointment-editor-title" className="editor-title">{selectedId === null ? "Book an appointment" : "Edit appointment"}</h2>
+                <h2 ref={editorTitleRef} id="appointment-editor-title" tabIndex={-1} className="editor-title">
+                  {selectedId === null ? "Book an appointment" : terminalAppointment ? "Appointment details" : "Edit appointment"}
+                </h2>
                 <p className="mt-2 max-w-[65ch] text-ink-soft">
                   {selectedId === null
                     ? "Choose the customer first to see only their vehicles."
                     : terminalAppointment
-                      ? legacyWithoutServices
-                        ? "This earlier booking has no catalogue service snapshot, so its original details are shown as read-only history."
-                        : `This ${statusLabels[selectedAppointment.status].toLocaleLowerCase()} appointment is kept as read-only workshop history.`
+                      ? "Viewing saved workshop record."
                       : "Update the booking or choose a new review status."}
                 </p>
               </div>
+              {terminalAppointment && (
+                <div className="readonly-banner" role="note">
+                  <strong className="block font-semibold">Read-only record</strong>
+                  <span className="mt-0.5 block text-ink-soft">{readOnlyReason}</span>
+                </div>
+              )}
+              {selectedAppointment?.status === "Completed" && (
+                <AppointmentServiceRecord key={selectedAppointment.id} appointment={selectedAppointment} services={services}
+                  disabled={connectionStatus !== "ready" || busy} onSave={onRecordService} />
+              )}
               <form onSubmit={submitAppointment} noValidate>
                 <fieldset disabled={connectionStatus !== "ready" || busy || terminalAppointment} className="m-0 min-w-0 border-0 p-0">
                   <SelectField ref={customerRef} id="customerId" label="Customer" value={form.customerId} error={errors.customerId} onChange={updateField}>
@@ -386,6 +412,12 @@ export default function AppointmentsSection({
                   <TextField ref={dateRef} id="scheduledAtLocal" label="Date and time (MYT)" value={form.scheduledAtLocal} type="datetime-local" error={errors.scheduledAtLocal || errors.scheduledAtUtc} help="Workshop hours 8:30 AM–5:30 PM. Starts every 30 minutes." onChange={updateField} />
                   <fieldset className="mb-5 min-w-0 border-0 p-0" aria-describedby={errors.serviceIds ? "serviceIds-error" : undefined}>
                     <legend className="mb-2 font-bold">Services required</legend>
+                    {terminalAppointment && (
+                      <p className="mb-2 text-xs text-ink-soft">Locked: services cannot be changed on a read-only appointment.</p>
+                    )}
+                    {!terminalAppointment && displayedServices.some((service) => !service.isActive) && (
+                      <p className="mb-2 text-xs text-ink-soft">Inactive services stay checked for this booking but cannot be re-added if removed.</p>
+                    )}
                     <div ref={serviceRef} tabIndex={-1} className="grid gap-2">
                       {displayedServices.map((service) => {
                         const displayed = estimate.unchanged ? estimate.items.find((item) => item.id === Number(service.id)) : null;
@@ -487,9 +519,11 @@ function AppointmentRecords(props) {
 }
 
 function AppointmentActions({ appointment, busy, onEdit }) {
+  const readOnly = ["Completed", "Cancelled", "Rejected"].includes(appointment.status) || !appointment.services?.length;
+  const actionVerb = readOnly ? "View" : "Edit";
   return (
     <div className="flex flex-wrap justify-end gap-2 max-desk:justify-start">
-      <button className="row-action" type="button" disabled={busy} onClick={() => onEdit(appointment)} aria-label={`Edit ${bookedServices(appointment)} appointment for ${appointment.customerName}`}>Edit</button>
+      <button className="row-action" type="button" disabled={busy} onClick={() => onEdit(appointment)} aria-label={`${actionVerb} ${bookedServices(appointment)} appointment for ${appointment.customerName}`}>{actionVerb}</button>
     </div>
   );
 }

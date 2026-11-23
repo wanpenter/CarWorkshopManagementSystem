@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getProblemFieldErrors, validateVehicle } from "../api.js";
+import { VehicleServiceHistory } from "./ServiceRecord.jsx";
 import {
   FormError,
   MobileDatum,
@@ -26,6 +27,7 @@ export default function VehiclesSection({
   errorMessage,
   customers,
   vehicles,
+  appointments,
   ownerFilter,
   busy,
   onOwnerFilterChange,
@@ -37,9 +39,12 @@ export default function VehiclesSection({
 }) {
   const [search, setSearch] = useState("");
   const [selectedId, setSelectedId] = useState(null);
+  const [historyId, setHistoryId] = useState(null);
   const [form, setForm] = useState(blankVehicle);
   const [errors, setErrors] = useState({});
+  const editorPanelRef = useRef(null);
   const registrationRef = useRef(null);
+  const editorTitleRef = useRef(null);
   const maxYear = new Date().getUTCFullYear() + 1;
 
   const visibleVehicles = useMemo(() => {
@@ -62,6 +67,12 @@ export default function VehiclesSection({
   }, [vehicles, selectedId]);
 
   useEffect(() => {
+    if (historyId !== null && !vehicles.some((vehicle) => Number(vehicle.id) === historyId)) setHistoryId(null);
+  }, [vehicles, historyId]);
+
+  const historyVehicle = historyId === null ? null : vehicles.find((vehicle) => Number(vehicle.id) === historyId) ?? null;
+
+  useEffect(() => {
     if (customers.length === 0) {
       setForm((current) => ({ ...current, customerId: "" }));
       return;
@@ -82,13 +93,23 @@ export default function VehiclesSection({
       ? ownerFilter
       : customers[0]?.id ?? "";
     setSelectedId(null);
+    setHistoryId(null);
     setForm({ ...blankVehicle, customerId: String(preferredOwner) });
     setErrors({});
     if (focus) window.requestAnimationFrame(() => registrationRef.current?.focus());
   }
 
+  function showHistory(vehicle) {
+    if (busy) return;
+    resetEditor();
+    setHistoryId(Number(vehicle.id));
+    editorPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    window.requestAnimationFrame(() => editorTitleRef.current?.focus({ preventScroll: true }));
+  }
+
   function beginEdit(vehicle) {
     if (busy) return;
+    setHistoryId(null);
     setSelectedId(Number(vehicle.id));
     setForm({
       customerId: String(vehicle.customerId ?? ""),
@@ -100,7 +121,8 @@ export default function VehiclesSection({
       isActive: vehicle.isActive !== false
     });
     setErrors({});
-    window.requestAnimationFrame(() => registrationRef.current?.focus({ preventScroll: true }));
+    editorPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    window.requestAnimationFrame(() => editorTitleRef.current?.focus({ preventScroll: true }));
   }
 
   async function submitVehicle(event) {
@@ -139,7 +161,7 @@ export default function VehiclesSection({
               <p className="mt-3 max-w-[65ch] text-ink-soft">Register each vehicle to an owner and keep mileage and active status current.</p>
             </div>
             <button className="button button-secondary shrink-0 max-[500px]:w-full" type="button" disabled={busy || status !== "ready"} onClick={() => void onRetry()}>
-              {status === "loading" ? "Loading..." : "Reload records"}
+              {status === "loading" ? "Reloading..." : "Reload records"}
             </button>
           </div>
 
@@ -165,6 +187,7 @@ export default function VehiclesSection({
             visibleVehicles={visibleVehicles}
             ownerFilter={ownerFilter}
             selectedId={selectedId}
+            historyId={historyId}
             busy={busy}
             onOpenSettings={onOpenSettings}
             onRetry={onRetry}
@@ -172,19 +195,32 @@ export default function VehiclesSection({
             onAddCustomer={onAddCustomer}
             onClearFilters={() => { setSearch(""); onOwnerFilterChange(""); }}
             onEdit={beginEdit}
+            onHistory={showHistory}
             onDelete={onDelete}
           />
         </div>
 
-        <aside className="editor-panel" aria-labelledby="vehicle-editor-title">
+        <aside ref={editorPanelRef} className="editor-panel" aria-labelledby="vehicle-editor-title">
           {customers.length === 0 && status === "ready" ? (
             <StatePanel title="Add a customer first" body="Every vehicle needs an owner. Create a customer, then return here to register the vehicle.">
               <button className="button button-primary" type="button" onClick={onAddCustomer}>Go to customers</button>
             </StatePanel>
+          ) : historyVehicle ? (
+            <>
+              <div className="mb-7">
+                <h2 ref={editorTitleRef} id="vehicle-editor-title" tabIndex={-1} className="editor-title">{historyVehicle.registrationNumber}</h2>
+                <p className="mt-2 max-w-[65ch] text-ink-soft">{historyVehicle.make} {historyVehicle.model} · {historyVehicle.customerName}</p>
+              </div>
+              <VehicleServiceHistory appointments={appointments} vehicleId={historyId} />
+              <div className="form-actions">
+                <button className="button button-primary" type="button" disabled={busy} onClick={() => beginEdit(historyVehicle)}>Edit vehicle</button>
+                <button className="button button-quiet" type="button" onClick={() => resetEditor()}>Close history</button>
+              </div>
+            </>
           ) : (
             <>
               <div className="mb-7">
-                <h2 id="vehicle-editor-title" className="editor-title">{selectedId === null ? "Register a vehicle" : "Edit vehicle"}</h2>
+                <h2 ref={editorTitleRef} id="vehicle-editor-title" tabIndex={-1} className="editor-title">{selectedId === null ? "Register a vehicle" : "Edit vehicle"}</h2>
                 <p className="mt-2 max-w-[65ch] text-ink-soft">{selectedId === null ? "Link the vehicle to its customer record." : "Update ownership or vehicle details."}</p>
               </div>
               <form onSubmit={submitVehicle} noValidate>
@@ -221,7 +257,8 @@ export default function VehiclesSection({
 }
 
 function VehicleRecords(props) {
-  const { status, errorMessage, customers, vehicles, visibleVehicles, ownerFilter, selectedId, busy, onOpenSettings, onRetry, onAdd, onAddCustomer, onClearFilters, onEdit, onDelete } = props;
+  const { status, errorMessage, customers, vehicles, visibleVehicles, ownerFilter, selectedId, historyId, busy, onOpenSettings, onRetry, onAdd, onAddCustomer, onClearFilters, onEdit, onHistory, onDelete } = props;
+  const isHighlighted = (vehicle) => Number(vehicle.id) === selectedId || Number(vehicle.id) === historyId;
   if (status === "disconnected") {
     return <StatePanel title="Connect your workshop API" body="Add the backend address to load customer and vehicle records."><button className="button button-primary" type="button" onClick={onOpenSettings}>Set API address</button></StatePanel>;
   }
@@ -246,14 +283,14 @@ function VehicleRecords(props) {
           <thead><tr><TableHead>Registration</TableHead><TableHead>Vehicle</TableHead><TableHead>Owner</TableHead><TableHead>Year</TableHead><TableHead>Mileage</TableHead><TableHead>Status</TableHead><TableHead className="text-right"><span className="sr-only">Actions</span></TableHead></tr></thead>
           <tbody>
             {visibleVehicles.map((vehicle) => (
-              <tr key={vehicle.id} className={Number(vehicle.id) === selectedId ? "bg-selected" : "transition-colors hover:bg-selected"}>
+              <tr key={vehicle.id} className={isHighlighted(vehicle) ? "bg-selected" : "transition-colors hover:bg-selected"}>
                 <TableCell className="font-bold tracking-[0.03em]">{vehicle.registrationNumber}</TableCell>
                 <TableCell>{vehicle.make} {vehicle.model}</TableCell>
                 <TableCell>{vehicle.customerName}</TableCell>
                 <TableCell>{vehicle.year ?? "Not provided"}</TableCell>
                 <TableCell>{Number(vehicle.mileage ?? 0).toLocaleString("en-MY")} km</TableCell>
                 <TableCell><span className={vehicle.isActive === false ? "status-text text-ink-soft" : "status-text text-success"}>{vehicle.isActive === false ? "Inactive" : "Active"}</span></TableCell>
-                <TableCell><VehicleActions vehicle={vehicle} busy={busy} onEdit={onEdit} onDelete={onDelete} /></TableCell>
+                <TableCell><VehicleActions vehicle={vehicle} busy={busy} onEdit={onEdit} onHistory={onHistory} onDelete={onDelete} /></TableCell>
               </tr>
             ))}
           </tbody>
@@ -261,14 +298,14 @@ function VehicleRecords(props) {
       </div>
       <div className="grid gap-3 desk:hidden">
         {visibleVehicles.map((vehicle) => (
-          <article key={vehicle.id} className={`record-card ${Number(vehicle.id) === selectedId ? "border-line-strong bg-selected" : "border-paper-line bg-paper-raised"}`}>
+          <article key={vehicle.id} className={`record-card ${isHighlighted(vehicle) ? "border-line-strong bg-selected" : "border-paper-line bg-paper-raised"}`}>
             <MobileDatum label="Registration"><strong>{vehicle.registrationNumber}</strong></MobileDatum>
             <MobileDatum label="Vehicle">{vehicle.make} {vehicle.model}</MobileDatum>
             <MobileDatum label="Owner">{vehicle.customerName}</MobileDatum>
             <MobileDatum label="Year">{vehicle.year ?? "Not provided"}</MobileDatum>
             <MobileDatum label="Mileage">{Number(vehicle.mileage ?? 0).toLocaleString("en-MY")} km</MobileDatum>
             <MobileDatum label="Status">{vehicle.isActive === false ? "Inactive" : "Active"}</MobileDatum>
-            <div className="mt-2 border-t border-paper-line pt-2"><VehicleActions vehicle={vehicle} busy={busy} onEdit={onEdit} onDelete={onDelete} /></div>
+            <div className="mt-2 border-t border-paper-line pt-2"><VehicleActions vehicle={vehicle} busy={busy} onEdit={onEdit} onHistory={onHistory} onDelete={onDelete} /></div>
           </article>
         ))}
       </div>
@@ -276,9 +313,10 @@ function VehicleRecords(props) {
   );
 }
 
-function VehicleActions({ vehicle, busy, onEdit, onDelete }) {
+function VehicleActions({ vehicle, busy, onEdit, onHistory, onDelete }) {
   return (
     <div className="flex flex-wrap justify-end gap-2 max-desk:justify-start">
+      <button className="row-action" type="button" disabled={busy} onClick={() => onHistory(vehicle)} aria-label={`Service history for ${vehicle.registrationNumber}`}>History</button>
       <button className="row-action" type="button" disabled={busy} onClick={() => onEdit(vehicle)} aria-label={`Edit ${vehicle.registrationNumber}`}>Edit</button>
       <button className="row-action text-danger" type="button" disabled={busy} onClick={(event) => onDelete("vehicle", vehicle, event.currentTarget)} aria-label={`Delete ${vehicle.registrationNumber}`}>Delete</button>
     </div>

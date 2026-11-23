@@ -28,6 +28,7 @@ export default function CustomersSection({
   const [selectedId, setSelectedId] = useState(null);
   const [form, setForm] = useState(emptyCustomer);
   const [errors, setErrors] = useState({});
+  const editorPanelRef = useRef(null);
   const nameRef = useRef(null);
 
   const visibleCustomers = useMemo(() => {
@@ -69,6 +70,7 @@ export default function CustomersSection({
       address: String(customer.address ?? "")
     });
     setErrors({});
+    editorPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
     window.requestAnimationFrame(() => nameRef.current?.focus({ preventScroll: true }));
   }
 
@@ -103,7 +105,7 @@ export default function CustomersSection({
               <p className="mt-3 max-w-[65ch] text-ink-soft">Manage customer contact details and open the vehicles registered to each owner.</p>
             </div>
             <button className="button button-secondary shrink-0 max-[500px]:w-full" type="button" disabled={busy || status !== "ready"} onClick={() => void onRetry()}>
-              {status === "loading" ? "Loading..." : "Reload records"}
+              {status === "loading" ? "Reloading..." : "Reload records"}
             </button>
           </div>
 
@@ -138,7 +140,7 @@ export default function CustomersSection({
           />
         </div>
 
-        <aside className="editor-panel" aria-labelledby="customer-editor-title">
+        <aside ref={editorPanelRef} className="editor-panel" aria-labelledby="customer-editor-title">
           <div className="mb-7">
             <h2 id="customer-editor-title" className="editor-title">{selectedId === null ? "Add a customer" : "Edit customer"}</h2>
             <p className="mt-2 max-w-[65ch] text-ink-soft">{selectedId === null ? "Create the owner record before registering a vehicle." : "Update this customer's contact details."}</p>

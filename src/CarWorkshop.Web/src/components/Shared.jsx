@@ -21,14 +21,24 @@ export function ConnectionStatus({ status }) {
   );
 }
 
-export function Notice({ notice }) {
+export function Notice({ notice, onDismiss }) {
   if (!notice) return null;
   const colors = notice.tone === "error"
     ? "border-danger-dark bg-danger-soft text-danger-dark"
     : "border-success bg-success-soft text-success";
   return (
-    <div className={`mb-5 rounded-sm border px-4 py-3 ${colors}`} role={notice.tone === "error" ? "alert" : "status"} aria-live="polite">
-      {notice.message}
+    <div className={`flex items-start justify-between gap-3 rounded-md border px-4 py-3 text-sm font-medium ${colors}`} role={notice.tone === "error" ? "alert" : "status"} aria-live="polite">
+      <span className="min-w-0 [overflow-wrap:anywhere]">{notice.message}</span>
+      {onDismiss && (
+        <button
+          type="button"
+          className="-my-1 -mr-1.5 inline-flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-sm bg-transparent text-current opacity-75 hover:opacity-100"
+          aria-label="Dismiss notification"
+          onClick={onDismiss}
+        >
+          ×
+        </button>
+      )}
     </div>
   );
 }

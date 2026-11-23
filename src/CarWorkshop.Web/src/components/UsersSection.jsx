@@ -51,7 +51,7 @@ export default function UsersSection({ active, currentUser, api, onSessionExpire
     return error instanceof ApiError ? error.message : fallback;
   }, [onSessionExpired]);
 
-  const loadUsers = useCallback(async () => {
+  const loadUsers = useCallback(async ({ announce = false } = {}) => {
     loadAbortRef.current?.abort();
     const controller = new AbortController();
     loadAbortRef.current = controller;
@@ -62,6 +62,7 @@ export default function UsersSection({ active, currentUser, api, onSessionExpire
       if (controller.signal.aborted) return;
       setUsers(Array.isArray(result) ? result : []);
       setLoadStatus("ready");
+      if (announce) setNotice("User accounts refreshed.");
     } catch (error) {
       if (controller.signal.aborted || error?.name === "AbortError") return;
       const message = handleApiError(error, "User accounts could not be loaded. Try again.");
@@ -268,13 +269,13 @@ export default function UsersSection({ active, currentUser, api, onSessionExpire
             <h1 id="users-title" className="page-title" tabIndex={-1}>User accounts</h1>
             <p className="text-ink-soft">Create staff access, update roles, and manage account status.</p>
           </div>
-          <div className="flex flex-wrap gap-2"><button type="button" className="button button-secondary" disabled={actionBusy || loadStatus === "loading"} onClick={loadUsers}>Reload accounts</button><button type="button" className="button button-primary" disabled={actionBusy} onClick={beginCreate}>Add user</button></div>
+          <div className="flex flex-wrap gap-2"><button type="button" className="button button-secondary" disabled={actionBusy || loadStatus === "loading"} onClick={() => void loadUsers({ announce: true })}>{loadStatus === "loading" ? "Reloading..." : "Reload accounts"}</button><button type="button" className="button button-primary" disabled={actionBusy} onClick={beginCreate}>Add user</button></div>
         </div>
 
         {loadStatus === "loading" && <StatePanel compact loading title="Loading users" body="Getting the latest account list." />}
         {loadStatus === "error" && (
           <StatePanel compact error title="Users could not be loaded" body={loadError}>
-            <button type="button" className="button button-secondary" onClick={loadUsers}>Try again</button>
+            <button type="button" className="button button-secondary" onClick={() => void loadUsers({ announce: true })}>Try again</button>
           </StatePanel>
         )}
 
@@ -372,11 +373,15 @@ export default function UsersSection({ active, currentUser, api, onSessionExpire
 
           <div className="auth-field">
             <label htmlFor="user-editor-role">Role</label>
-            <select id="user-editor-role" name="role" className="control-input" value={form.role} disabled={actionBusy || editingSelf} aria-invalid={errors.role ? "true" : undefined} aria-describedby={editingSelf ? "user-editor-role-help" : errors.role ? "user-editor-role-error" : undefined} onChange={(event) => updateField("role", event.target.value)}>
+            <select id="user-editor-role" name="role" className="control-input" value={form.role} disabled={actionBusy || editingSelf} aria-invalid={errors.role ? "true" : undefined} aria-describedby={errors.role ? "user-editor-role-help user-editor-role-error" : "user-editor-role-help"} onChange={(event) => updateField("role", event.target.value)}>
               <option value="Staff">Staff</option>
               <option value="Admin">Admin</option>
             </select>
-            {editingSelf && <p id="user-editor-role-help" className="auth-field-help">Another administrator must change your role.</p>}
+            <p id="user-editor-role-help" className="auth-field-help">
+              {editingSelf ? "Another administrator must change your role."
+                : form.role === "Admin" ? "Can manage workshop records and user accounts."
+                : "Can manage workshop records, including bookings and mechanic assignments."}
+            </p>
             {errors.role && <p id="user-editor-role-error" className="auth-field-error" role="alert">{errors.role}</p>}
           </div>
 
