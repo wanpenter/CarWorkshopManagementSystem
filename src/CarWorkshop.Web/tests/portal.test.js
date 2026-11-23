@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createApiClient, validateAppointment, validateVehicle } from "../src/api.js";
+import { createApiClient, resolvePortalRoute, validateAppointment, validateVehicle } from "../src/api.js";
 
 const json = (body, status = 200) => new Response(JSON.stringify(body), {
   status,
@@ -83,4 +83,36 @@ test("portal validation helpers allow omitting customerId when requireCustomer i
   assert.equal(booking.valid, true);
   assert.equal(booking.values.vehicleId, 5);
   assert.deepEqual(booking.values.serviceIds, [1, 2]);
+});
+
+test("resolvePortalRoute separates customer (/) and internal staff (/staff, /admin) portals", () => {
+  assert.equal(resolvePortalRoute("/"), "customer");
+  assert.equal(resolvePortalRoute("/portal"), "customer");
+  assert.equal(resolvePortalRoute("/staff"), "staff");
+  assert.equal(resolvePortalRoute("/staff/"), "staff");
+  assert.equal(resolvePortalRoute("/staff/appointments"), "staff");
+  assert.equal(resolvePortalRoute("/admin"), "staff");
+  assert.equal(resolvePortalRoute("/ADMIN/users"), "staff");
+});
+
+test("enterprise staffLogin and customerLogin use separate endpoints and 401 does not expire session", async () => {
+  const calls = [];
+  let expired = 0;
+  const api = createApiClient("https://workshop.test", {
+    onUnauthorized: () => { expired++; },
+    fetchImpl: async (url, options) => {
+      if (url.endsWith("/api/auth/csrf")) return json({ token: "csrf-ent" });
+      calls.push({ path: new URL(url).pathname, method: options.method, csrf: options.headers["X-CSRF-TOKEN"] });
+      return json({ detail: "Invalid credentials or session." }, 401);
+    }
+  });
+
+  await assert.rejects(api.staffLogin({ username: "cust", password: "wrong" }));
+  await assert.rejects(api.customerLogin({ username: "staff", password: "wrong" }));
+
+  assert.deepEqual(calls, [
+    { path: "/api/auth/staff/login", method: "POST", csrf: "csrf-ent" },
+    { path: "/api/auth/customer/login", method: "POST", csrf: "csrf-ent" }
+  ]);
+  assert.equal(expired, 0);
 });

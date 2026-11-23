@@ -3,6 +3,7 @@ import {
   ApiError,
   createApiClient,
   resolveInitialApiBaseUrl,
+  resolvePortalRoute,
   saveApiBaseUrl,
   validateApiBaseUrl
 } from "./api.js";
@@ -64,6 +65,7 @@ function App() {
   const [authStatus, setAuthStatus] = useState("checking");
   const [authError, setAuthError] = useState("");
   const [authBusy, setAuthBusy] = useState(false);
+  const [portalRoute, setPortalRoute] = useState(() => resolvePortalRoute(window.location.pathname));
 
   const mountedRef = useRef(true);
   const activeLoadRef = useRef({ revision: 0, controller: null });
@@ -184,14 +186,29 @@ function App() {
   }, [api, clearSession]);
 
   useEffect(() => {
+    const onPopState = () => setPortalRoute(resolvePortalRoute(window.location.pathname));
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, []);
+
+  const navigatePortal = useCallback((targetPortal) => {
+    const nextPath = targetPortal === "staff" ? "/staff" : "/";
+    if (window.location.pathname !== nextPath) {
+      window.history.pushState({}, "", nextPath);
+    }
+    setPortalRoute(targetPortal);
+    setAuthError("");
+  }, []);
+
+  useEffect(() => {
     const controller = new AbortController();
     void checkSession(controller.signal);
     return () => controller.abort();
   }, [checkSession]);
 
   useEffect(() => {
-    if (sessionUser && sessionUser.role !== "Customer") void loadRecords();
-  }, [loadRecords, sessionUser]);
+    if (sessionUser && sessionUser.role !== "Customer" && portalRoute === "staff") void loadRecords();
+  }, [loadRecords, portalRoute, sessionUser]);
 
   useEffect(() => {
     if (!sessionUser || !api) return undefined;
@@ -217,7 +234,9 @@ function App() {
     if (!api || authBusy) throw new Error("Connect to the workshop API before signing in.");
     setAuthBusy(true);
     try {
-      const user = await api.login(values);
+      const user = portalRoute === "staff"
+        ? await api.staffLogin(values)
+        : await api.customerLogin(values);
       setAuthError("");
       setSessionUser(user);
       setAuthStatus("ready");
@@ -485,10 +504,53 @@ function App() {
     [customers, receiptAppointment]
   );
 
+  const isCustomerUser = sessionUser?.role === "Customer";
+  const portalMismatch = Boolean(
+    sessionUser && authStatus === "ready" && (
+      (isCustomerUser && portalRoute === "staff") ||
+      (!isCustomerUser && portalRoute === "customer")
+    )
+  );
+
   return (
     <>
       {sessionUser && authStatus === "ready" ? (
-        sessionUser.role === "Customer" ? (
+        portalMismatch ? (
+          <main className="auth-screen">
+            <header className="auth-brand-lockup">
+              <span>Torque<span className="brand-accent">Pro</span></span>
+              <span className={`auth-portal-pill ${portalRoute === "staff" ? "is-staff" : ""}`}>
+                {portalRoute === "staff" ? "Staff & Admin Portal" : "Customer Portal"}
+              </span>
+            </header>
+            <div className="auth-entry-panel">
+              <div className={`auth-card ${portalRoute === "staff" ? "is-staff" : ""}`}>
+                <div className="auth-state" role="alert">
+                  <span className="auth-state-symbol" aria-hidden="true">!</span>
+                  <h1>{isCustomerUser ? "Restricted to workshop staff" : "Signed in as workshop staff"}</h1>
+                  <p>
+                    {isCustomerUser
+                      ? `You are signed in as ${sessionUser.username} (Customer). The /staff portal is restricted to authorised workshop staff and administrators.`
+                      : `You are signed in as ${sessionUser.username} (${sessionUser.role}). Open the Workshop Staff Portal or sign out to use the Customer Portal.`}
+                  </p>
+                  <div className="auth-actions">
+                    <button
+                      type="button"
+                      className="button button-primary"
+                      disabled={authBusy}
+                      onClick={() => navigatePortal(isCustomerUser ? "customer" : "staff")}
+                    >
+                      {isCustomerUser ? "Return to Customer Portal" : "Open Staff Portal (/staff)"}
+                    </button>
+                    <button type="button" className="button button-secondary" disabled={authBusy} onClick={logout}>
+                      {authBusy ? "Signing out..." : "Sign out"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </main>
+        ) : isCustomerUser ? (
           <CustomerPortal
             api={api}
             user={sessionUser}
@@ -575,7 +637,17 @@ function App() {
           </WorkshopShell>
         )
       ) : (
-        <LoginScreen status={authStatus} errorMessage={authError} busy={authBusy} onLogin={login} onRegister={register} onRetry={() => void checkSession()} onOpenSettings={openSettings} />
+        <LoginScreen
+          portal={portalRoute}
+          status={authStatus}
+          errorMessage={authError}
+          busy={authBusy}
+          onLogin={login}
+          onRegister={register}
+          onSwitchPortal={navigatePortal}
+          onRetry={() => void checkSession()}
+          onOpenSettings={openSettings}
+        />
       )}
 
       <SettingsDialog open={settingsOpen} initialValue={apiBaseUrl} busy={mutating || authBusy} onClose={closeSettings} onSave={saveSettings} />

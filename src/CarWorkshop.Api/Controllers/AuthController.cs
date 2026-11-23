@@ -2,6 +2,7 @@ using System.Security.Claims;
 using CarWorkshop.Api.Authentication;
 using CarWorkshop.Api.Models;
 using CarWorkshop.Api.Services;
+using CarWorkshop.Domain.Entities;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
@@ -34,6 +35,50 @@ public sealed class AuthController(
         CancellationToken cancellationToken)
     {
         var result = await authService.LoginAsync(request.Username, request.Password, cancellationToken);
+        if (result is null)
+        {
+            return UnauthorizedProblem();
+        }
+
+        await SignInSessionAsync(result);
+        return Ok(WorkshopAuthService.ToAuthenticatedResponse(result.User));
+    }
+
+    [AllowAnonymous]
+    [EnableRateLimiting("Login")]
+    [HttpPost("staff/login")]
+    public async Task<ActionResult<AuthenticatedUserResponse>> StaffLogin(
+        LoginRequest request,
+        CancellationToken cancellationToken)
+    {
+        var result = await authService.LoginAsync(
+            request.Username,
+            request.Password,
+            [WorkshopUser.AdminRole, WorkshopUser.StaffRole],
+            "Staff",
+            cancellationToken);
+        if (result is null)
+        {
+            return UnauthorizedProblem();
+        }
+
+        await SignInSessionAsync(result);
+        return Ok(WorkshopAuthService.ToAuthenticatedResponse(result.User));
+    }
+
+    [AllowAnonymous]
+    [EnableRateLimiting("Login")]
+    [HttpPost("customer/login")]
+    public async Task<ActionResult<AuthenticatedUserResponse>> CustomerLogin(
+        LoginRequest request,
+        CancellationToken cancellationToken)
+    {
+        var result = await authService.LoginAsync(
+            request.Username,
+            request.Password,
+            [WorkshopUser.CustomerRole],
+            "Customer",
+            cancellationToken);
         if (result is null)
         {
             return UnauthorizedProblem();

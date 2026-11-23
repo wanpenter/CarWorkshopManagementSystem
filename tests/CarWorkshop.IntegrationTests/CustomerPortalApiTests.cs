@@ -286,6 +286,66 @@ public sealed class CustomerPortalApiTests(BookingApiFactory app) : IClassFixtur
         Assert.Equal("Outstation trip", cancelled.RootElement.GetProperty("statusReason").GetString());
     }
 
+    [Fact]
+    public async Task Enterprise_portal_login_endpoints_enforce_role_audience_without_enumeration_and_log_audit()
+    {
+        var suffix = Guid.NewGuid().ToString("N")[..8];
+        var customerUsername = $"ent.cust.{suffix}";
+        const string customerPassword = "Customer!Pass#2039";
+        using var customer = await RegisterCustomerAsync(customerUsername, "Enterprise Customer", "0128889999", customerPassword);
+        var staff = await app.CreateAccountAsync(role: "Staff");
+
+        // 1. Customer cannot sign in via /api/auth/staff/login (generic 401, no session cookie issued).
+        using var customerToStaff = app.CreateAnonymousClient();
+        await app.RefreshCsrfAsync(customerToStaff);
+        using var deniedStaffLogin = await customerToStaff.PostAsJsonAsync("/api/auth/staff/login", new
+        {
+            username = customerUsername,
+            password = customerPassword
+        });
+        Assert.Equal(HttpStatusCode.Unauthorized, deniedStaffLogin.StatusCode);
+        using var customerStaffMe = await customerToStaff.GetAsync("/api/auth/me");
+        Assert.Equal(HttpStatusCode.Unauthorized, customerStaffMe.StatusCode);
+
+        // 2. Customer CAN sign in via /api/auth/customer/login.
+        using var customerToCustomer = app.CreateAnonymousClient();
+        await app.RefreshCsrfAsync(customerToCustomer);
+        using var okCustomerLogin = await customerToCustomer.PostAsJsonAsync("/api/auth/customer/login", new
+        {
+            username = customerUsername,
+            password = customerPassword
+        });
+        Assert.Equal(HttpStatusCode.OK, okCustomerLogin.StatusCode);
+
+        // 3. Staff cannot sign in via /api/auth/customer/login (generic 401, no session, does not lock out account).
+        using var staffToCustomer = app.CreateAnonymousClient();
+        await app.RefreshCsrfAsync(staffToCustomer);
+        using var deniedCustomerLogin = await staffToCustomer.PostAsJsonAsync("/api/auth/customer/login", new
+        {
+            username = staff.Username,
+            password = staff.Password
+        });
+        Assert.Equal(HttpStatusCode.Unauthorized, deniedCustomerLogin.StatusCode);
+        using var staffCustomerMe = await staffToCustomer.GetAsync("/api/auth/me");
+        Assert.Equal(HttpStatusCode.Unauthorized, staffCustomerMe.StatusCode);
+
+        // 4. Staff CAN still sign in immediately via /api/auth/staff/login.
+        using var staffToStaff = app.CreateAnonymousClient();
+        await app.RefreshCsrfAsync(staffToStaff);
+        using var okStaffLogin = await staffToStaff.PostAsJsonAsync("/api/auth/staff/login", new
+        {
+            username = staff.Username,
+            password = staff.Password
+        });
+        Assert.Equal(HttpStatusCode.OK, okStaffLogin.StatusCode);
+
+        // 5. Cross-portal login attempts are recorded in Admin Audit Log.
+        using var auditResponse = await app.Client.GetAsync($"/api/audit-logs?action=User.PortalAccessDenied&search={Uri.EscapeDataString(customerUsername)}");
+        Assert.Equal(HttpStatusCode.OK, auditResponse.StatusCode);
+        using var auditJson = JsonDocument.Parse(await auditResponse.Content.ReadAsStringAsync());
+        Assert.True(auditJson.RootElement.GetProperty("totalCount").GetInt32() >= 1);
+    }
+
     private async Task<RegisteredCustomerSession> RegisterCustomerAsync(
         string username,
         string fullName,

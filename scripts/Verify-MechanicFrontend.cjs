@@ -9,7 +9,7 @@ async function main() {
     const errors = [];
     page.on('pageerror', (error) => errors.push(error.message));
     await page.addInitScript(() => localStorage.setItem('car-workshop-api-base-url', 'http://127.0.0.1:5273'));
-    await page.goto('http://127.0.0.1:4173');
+    await page.goto('http://127.0.0.1:4173/staff');
     await page.getByLabel('Username', { exact: true }).fill(process.env.WORKSHOP_ADMIN_USERNAME);
     await page.getByLabel('Password', { exact: true }).fill(process.env.WORKSHOP_ADMIN_PASSWORD);
     await page.getByRole('button', { name: 'Sign in', exact: true }).click();

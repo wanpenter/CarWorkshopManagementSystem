@@ -3,6 +3,16 @@ export const FALLBACK_API_BASE_URL = "http://localhost";
 const LEGACY_LOCAL_API_BASE_URLS = new Set(["http://localhost:5272", "http://127.0.0.1:5272"]);
 export const DEFAULT_REQUEST_TIMEOUT_MS = 10_000;
 
+export function resolvePortalRoute(pathname = "/") {
+  const normalized = String(pathname ?? "/").toLowerCase().replace(/\/+$/, "") || "/";
+  return normalized === "/staff" ||
+    normalized.startsWith("/staff/") ||
+    normalized === "/admin" ||
+    normalized.startsWith("/admin/")
+    ? "staff"
+    : "customer";
+}
+
 export class ApiError extends Error {
   constructor(message, { status = null, problem = null, cause } = {}) {
     super(message, { cause });
@@ -386,7 +396,12 @@ export function createApiClient(
       });
       const responseBody = await readJsonResponse(response);
       if (!response.ok) {
-        if (response.status === 401 && !["/api/auth/login", "/api/auth/register", "/api/auth/me"].includes(path)) onUnauthorized?.();
+        if (
+          response.status === 401 &&
+          !["/api/auth/login", "/api/auth/staff/login", "/api/auth/customer/login", "/api/auth/register", "/api/auth/me"].includes(path)
+        ) {
+          onUnauthorized?.();
+        }
         throw new ApiError(problemMessage(responseBody, response.status), {
           status: response.status,
           problem: responseBody
@@ -416,6 +431,8 @@ export function createApiClient(
     baseUrl: requestBaseUrl,
     getCurrentUser: ({ signal } = {}) => request("/api/auth/me", { signal }),
     login: (values) => request("/api/auth/login", { method: "POST", body: values }),
+    staffLogin: (values) => request("/api/auth/staff/login", { method: "POST", body: values }),
+    customerLogin: (values) => request("/api/auth/customer/login", { method: "POST", body: values }),
     registerCustomer: (values) => request("/api/auth/register", { method: "POST", body: values }),
     logout: () => request("/api/auth/logout", { method: "POST" }),
     changePassword: (values) => request("/api/auth/change-password", { method: "POST", body: values }),

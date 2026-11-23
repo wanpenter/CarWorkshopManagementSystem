@@ -26,9 +26,19 @@ public sealed class WorkshopAuthService(
     private static readonly string DummyPasswordHash =
         new PasswordHasher<WorkshopUser>().HashPassword(DummyUser, "not-a-real-account-password");
 
+    public Task<LoginResult?> LoginAsync(
+        string username,
+        string password,
+        CancellationToken cancellationToken)
+    {
+        return LoginAsync(username, password, allowedRoles: null, portalName: null, cancellationToken);
+    }
+
     public async Task<LoginResult?> LoginAsync(
         string username,
         string password,
+        IReadOnlyCollection<string>? allowedRoles,
+        string? portalName,
         CancellationToken cancellationToken)
     {
         string normalizedUsername;
@@ -74,6 +84,25 @@ public sealed class WorkshopAuthService(
                 actorOverride: new CurrentActor(user.Id, user.Username, user.Role),
                 cancellationToken: cancellationToken);
             await db.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+            return null;
+        }
+
+        if (allowedRoles is { Count: > 0 } && !allowedRoles.Contains(user.Role))
+        {
+            if (!string.IsNullOrWhiteSpace(portalName))
+            {
+                await auditLogs.StageAsync(
+                    "User.PortalAccessDenied",
+                    "User",
+                    user.Id,
+                    $"{user.Role} account {user.Username} attempted to sign in through the {portalName} portal.",
+                    newValues: new { attemptedPortal = portalName, actualRole = user.Role },
+                    actorOverride: new CurrentActor(user.Id, user.Username, user.Role),
+                    cancellationToken: cancellationToken);
+                await db.SaveChangesAsync(cancellationToken);
+            }
+
             await transaction.CommitAsync(cancellationToken);
             return null;
         }

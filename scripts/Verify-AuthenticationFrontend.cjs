@@ -21,7 +21,7 @@ async function main() {
     await context.addInitScript(() => localStorage.setItem('car-workshop-api-base-url', 'http://127.0.0.1:5273'));
     const page = await context.newPage();
     page.on('pageerror', (error) => errors.push(error.message));
-    await page.goto('http://127.0.0.1:4173');
+    await page.goto('http://127.0.0.1:4173/staff');
     await page.getByRole('button', { name: 'Sign in', exact: true }).waitFor();
     for (const route of ['customers', 'vehicles', 'services', 'appointments', 'mechanics', 'cars', 'users']) {
       assert.equal((await context.request.get(`${base}/api/${route}`)).status(), 401, `Anonymous ${route}`);
@@ -36,7 +36,7 @@ async function main() {
     const login = async (target, username, password, success = true) => {
       await target.getByLabel('Username', { exact: true }).fill(username);
       await target.getByLabel('Password', { exact: true }).fill(password);
-      const response = target.waitForResponse((r) => r.url().endsWith('/api/auth/login') && r.request().method() === 'POST');
+      const response = target.waitForResponse((r) => r.url().endsWith('/api/auth/staff/login') && r.request().method() === 'POST');
       await target.getByRole('button', { name: 'Sign in', exact: true }).click();
       assert.equal((await response).status(), success ? 200 : 401);
       if (success) await target.getByText('API connected', { exact: true }).waitFor({ state: 'attached' });
@@ -77,7 +77,7 @@ async function main() {
     await staffContext.addInitScript(() => localStorage.setItem('car-workshop-api-base-url', 'http://127.0.0.1:5273'));
     const staffPage = await staffContext.newPage();
     staffPage.on('pageerror', (error) => errors.push(error.message));
-    await staffPage.goto('http://127.0.0.1:4173');
+    await staffPage.goto('http://127.0.0.1:4173/staff');
     await login(staffPage, staffUsername, initialPassword);
     assert.equal(await staffPage.locator('#users-nav').count(), 0, 'Staff has no user management navigation');
     assert.equal((await staffContext.request.get(`${base}/api/users`)).status(), 403, 'Backend blocks Staff account management');

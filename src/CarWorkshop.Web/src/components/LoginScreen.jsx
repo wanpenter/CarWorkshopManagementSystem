@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ApiError, getProblemFieldErrors, validateCustomer } from "../api.js";
 
 const EMPTY_LOGIN_ERRORS = Object.freeze({ username: "", password: "", form: "" });
@@ -70,14 +70,17 @@ function PasswordField({
 }
 
 export default function LoginScreen({
+  portal = "customer",
   status,
   errorMessage,
   busy = false,
   onLogin,
   onRegister,
+  onSwitchPortal,
   onRetry,
   onOpenSettings
 }) {
+  const isStaffPortal = portal === "staff";
   const [mode, setMode] = useState("login");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -95,6 +98,14 @@ export default function LoginScreen({
   const regFormRef = useRef(null);
 
   const working = busy || submitting;
+
+  useEffect(() => {
+    setMode("login");
+    setErrors(EMPTY_LOGIN_ERRORS);
+    setRegErrors(EMPTY_REGISTER_ERRORS);
+    setPassword("");
+    setShowPassword(false);
+  }, [portal]);
 
   function switchMode(nextMode) {
     if (working) return;
@@ -217,15 +228,19 @@ export default function LoginScreen({
 
   const isChecking = status === "checking";
   const isConnectionError = status === "error";
+  const effectiveMode = isStaffPortal ? "login" : mode;
 
   return (
     <main className="auth-screen">
       <header className="auth-brand-lockup">
         <span>Torque<span className="brand-accent">Pro</span></span>
+        <span className={`auth-portal-pill ${isStaffPortal ? "is-staff" : ""}`}>
+          {isStaffPortal ? "Staff & Admin Portal" : "Customer Portal"}
+        </span>
       </header>
 
       <div className="auth-entry-panel">
-        <div className="auth-card">
+        <div className={`auth-card ${isStaffPortal ? "is-staff" : ""}`}>
           {isChecking && (
             <div className="auth-state" role="status">
               <div className="auth-loading-line" aria-hidden="true" />
@@ -249,12 +264,21 @@ export default function LoginScreen({
             </div>
           )}
 
-          {!isChecking && !isConnectionError && mode === "login" && (
+          {!isChecking && !isConnectionError && effectiveMode === "login" && (
             <>
               <div className="auth-card-heading">
-                <h1>Sign in</h1>
-                <p>Use your TorquePro staff, admin, or customer account.</p>
+                <h1>{isStaffPortal ? "Workshop sign in" : "Customer sign in"}</h1>
+                <p>
+                  {isStaffPortal
+                    ? "Authorised TorquePro staff and administrators only."
+                    : "Book workshop services, track job progress, and download service receipts."}
+                </p>
               </div>
+              {isStaffPortal && (
+                <p className="auth-security-note" role="note">
+                  Internal operations portal · All sign-in and record changes are monitored in the audit log.
+                </p>
+              )}
               {errorMessage && <p className="auth-field-help mb-4" role="status">{errorMessage}</p>}
               <form noValidate onSubmit={handleLoginSubmit}>
                 {errors.form && <p className="auth-form-error" role="alert">{errors.form}</p>}
@@ -301,23 +325,37 @@ export default function LoginScreen({
                 </button>
               </form>
               <div className="auth-sign-in-help">
-                {onRegister && (
+                {!isStaffPortal && onRegister && (
                   <div className="auth-switch-row">
-                    <span>New customer?</span>
+                    <span>New to TorquePro?</span>
                     <button type="button" className="auth-switch-button" disabled={working} onClick={() => switchMode("register")}>
                       Create customer account
                     </button>
                   </div>
                 )}
-                <p>Staff password reset? Ask your workshop admin.</p>
-                <button type="button" className="auth-settings-link" disabled={working} onClick={onOpenSettings}>
-                  API settings
-                </button>
+                {isStaffPortal && (
+                  <p>Need staff access or a password reset? Contact your workshop administrator.</p>
+                )}
+                <div className="auth-footer-links">
+                  <button type="button" className="auth-settings-link" disabled={working} onClick={onOpenSettings}>
+                    API settings
+                  </button>
+                  {onSwitchPortal && (
+                    <button
+                      type="button"
+                      className="auth-settings-link"
+                      disabled={working}
+                      onClick={() => onSwitchPortal(isStaffPortal ? "customer" : "staff")}
+                    >
+                      {isStaffPortal ? "← Customer portal" : "Staff & Admin portal →"}
+                    </button>
+                  )}
+                </div>
               </div>
             </>
           )}
 
-          {!isChecking && !isConnectionError && mode === "register" && (
+          {!isChecking && !isConnectionError && effectiveMode === "register" && (
             <>
               <div className="auth-card-heading">
                 <h1>Create customer account</h1>

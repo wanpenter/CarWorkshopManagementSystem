@@ -8,6 +8,8 @@
 .auth-brand-lockup {
   display: flex;
   align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
   min-height: 4rem;
   padding-inline: clamp(1.25rem, 5vw, 4rem);
   border-bottom: 1px solid var(--color-paper-line);
@@ -15,6 +17,24 @@
   font-size: 1.05rem;
   font-weight: 750;
   letter-spacing: -0.025em;
+}
+
+.auth-portal-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.3rem 0.7rem;
+  border-radius: 999px;
+  background: #eaf5f6;
+  color: #0e5361;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.auth-portal-pill.is-staff {
+  background: #20252d;
+  color: #fff;
 }
 
 .auth-entry-panel {
@@ -30,6 +50,30 @@
   border-radius: 0.625rem;
   background: #fff;
   box-shadow: 0 18px 50px rgba(32, 37, 45, 0.08);
+}
+
+.auth-card.is-staff {
+  border-top: 4px solid var(--color-rust);
+}
+
+.auth-security-note {
+  margin: 0 0 1.25rem;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid var(--color-paper-line);
+  border-left: 3px solid #20252d;
+  border-radius: 0.375rem;
+  background: var(--color-paper);
+  color: var(--color-ink-soft);
+  font-size: 0.76rem;
+}
+
+.auth-footer-links {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-top: 0.35rem;
 }
 
 .auth-card-heading {
