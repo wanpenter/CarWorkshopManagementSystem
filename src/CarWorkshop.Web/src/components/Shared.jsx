@@ -155,3 +155,55 @@ export function FormError({ message }) {
   if (!message) return null;
   return <p className="mb-4 rounded-sm border border-danger-dark bg-danger-soft p-3 text-sm font-semibold text-danger-dark" role="alert">{message}</p>;
 }
+
+export function ResultsBar({ visibleCount, totalCount, noun, hasFilters, onClearFilters }) {
+  if (totalCount === 0 || visibleCount === 0) return null;
+  const plural = totalCount === 1 ? noun : `${noun}s`;
+  return (
+    <div className="results-bar">
+      <span className="tabular-nums">
+        {hasFilters
+          ? `Showing ${visibleCount} of ${totalCount} ${plural}`
+          : `${totalCount} ${plural} total`}
+      </span>
+      {hasFilters && onClearFilters && (
+        <button type="button" className="count-link min-h-7 px-1.5 py-0.5 text-xs" onClick={onClearFilters}>
+          Clear filters
+        </button>
+      )}
+    </div>
+  );
+}
+
+export function PaginationBar({ page, totalPages, totalCount, pageSize, onPageChange }) {
+  if (totalCount <= pageSize) return null;
+  const start = (page - 1) * pageSize + 1;
+  const end = Math.min(totalCount, page * pageSize);
+  return (
+    <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-paper-line pt-4 text-xs">
+      <span className="text-ink-soft tabular-nums">
+        Showing {start}–{end} of {totalCount} (Page {page} of {totalPages})
+      </span>
+      <div className="flex gap-2">
+        <button
+          type="button"
+          className="button button-secondary min-h-9 px-3 py-1.5 text-xs"
+          disabled={page <= 1}
+          title={page <= 1 ? "You are on the first page" : undefined}
+          onClick={() => onPageChange(Math.max(1, page - 1))}
+        >
+          Previous
+        </button>
+        <button
+          type="button"
+          className="button button-secondary min-h-9 px-3 py-1.5 text-xs"
+          disabled={page >= totalPages}
+          title={page >= totalPages ? "You are on the last page" : undefined}
+          onClick={() => onPageChange(Math.min(totalPages, page + 1))}
+        >
+          Next
+        </button>
+      </div>
+    </div>
+  );
+}

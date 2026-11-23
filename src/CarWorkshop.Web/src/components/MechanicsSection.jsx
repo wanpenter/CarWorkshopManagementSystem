@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { getProblemFieldErrors, validateMechanic } from "../api.js";
-import { FormError, MobileDatum, StatePanel, TableCell, TableHead, TextField } from "./Shared.jsx";
+import { FormError, MobileDatum, ResultsBar, StatePanel, TableCell, TableHead, TextField } from "./Shared.jsx";
 
 const emptyForm = { fullName: "", phone: "", isActive: true };
 
@@ -67,6 +67,15 @@ export default function MechanicsSection({ active, status, errorMessage, mechani
             <div><label className="mb-2 block font-bold" htmlFor="mechanic-search">Search mechanics</label><input id="mechanic-search" className="control-input" type="search" placeholder="Name or phone" value={query} disabled={status !== "ready"} onChange={(event) => setQuery(event.target.value)} /></div>
             <label className="inline-flex min-h-11 items-center gap-3 font-semibold"><input className="size-5 accent-rust" type="checkbox" checked={showInactive} disabled={status !== "ready"} onChange={(event) => setShowInactive(event.target.checked)} />Show inactive</label>
           </div>
+          {status === "ready" && mechanics.length > 0 && (
+            <ResultsBar
+              visibleCount={visible.length}
+              totalCount={mechanics.length}
+              noun="mechanic"
+              hasFilters={Boolean(query || !showInactive)}
+              onClearFilters={() => { setQuery(""); setShowInactive(true); }}
+            />
+          )}
           {status === "disconnected" ? <StatePanel title="Connect your workshop API" body="Add the backend address to load mechanics."><button className="button button-primary" type="button" onClick={onOpenSettings}>Set API address</button></StatePanel>
             : status === "loading" ? <StatePanel loading title="Loading mechanics" body="Waiting for the workshop API." />
               : status === "error" ? <StatePanel error title="Mechanics could not be loaded" body={errorMessage}><button className="button button-primary" type="button" onClick={() => void onRetry()}>Try connection again</button><button className="button button-quiet" type="button" onClick={onOpenSettings}>Check API settings</button></StatePanel>
@@ -75,10 +84,10 @@ export default function MechanicsSection({ active, status, errorMessage, mechani
                     : <>
                       <div className="hidden overflow-x-auto border-b border-line-strong desk:block">
                         <table className="w-full border-collapse"><thead><tr><TableHead>Name</TableHead><TableHead>Phone</TableHead><TableHead>Status</TableHead><TableHead className="text-right"><span className="sr-only">Actions</span></TableHead></tr></thead>
-                          <tbody>{visible.map((mechanic) => <tr key={mechanic.id} className={selectedId === Number(mechanic.id) ? "bg-selected" : "hover:bg-selected"}><TableCell><strong>{mechanic.fullName}</strong></TableCell><TableCell>{mechanic.phone}</TableCell><TableCell><span className={mechanic.isActive ? "text-success" : "text-ink-soft"}>{mechanic.isActive ? "Active" : "Inactive"}</span></TableCell><TableCell className="text-right">{actions(mechanic)}</TableCell></tr>)}</tbody>
+                          <tbody>{visible.map((mechanic) => <tr key={mechanic.id} className={selectedId === Number(mechanic.id) ? "bg-selected" : "transition-colors hover:bg-selected"}><TableCell><strong>{mechanic.fullName}</strong></TableCell><TableCell className="whitespace-nowrap">{mechanic.phone}</TableCell><TableCell><span className={`status-text ${mechanic.isActive ? "pill-success" : "pill-muted"}`}>{mechanic.isActive ? "Active" : "Inactive"}</span></TableCell><TableCell className="text-right whitespace-nowrap">{actions(mechanic)}</TableCell></tr>)}</tbody>
                         </table>
                       </div>
-                      <div className="grid gap-3 desk:hidden">{visible.map((mechanic) => <article key={mechanic.id} className={`record-card border-paper-line ${selectedId === Number(mechanic.id) ? "bg-selected" : "bg-paper-raised"}`}><h2 className="font-display text-xl font-bold">{mechanic.fullName}</h2><MobileDatum label="Phone">{mechanic.phone}</MobileDatum><MobileDatum label="Status">{mechanic.isActive ? "Active" : "Inactive"}</MobileDatum><div className="mt-2 border-t border-paper-line pt-2">{actions(mechanic)}</div></article>)}</div>
+                      <div className="grid gap-3 desk:hidden">{visible.map((mechanic) => <article key={mechanic.id} className={`record-card border-paper-line ${selectedId === Number(mechanic.id) ? "bg-selected" : "bg-paper-raised"}`}><h2 className="font-display text-xl font-bold">{mechanic.fullName}</h2><MobileDatum label="Phone">{mechanic.phone}</MobileDatum><MobileDatum label="Status"><span className={`status-text ${mechanic.isActive ? "pill-success" : "pill-muted"}`}>{mechanic.isActive ? "Active" : "Inactive"}</span></MobileDatum><div className="mt-2 border-t border-paper-line pt-2">{actions(mechanic)}</div></article>)}</div>
                     </>}
         </div>
         <aside ref={editorPanelRef} className="editor-panel" aria-labelledby="mechanic-editor-title">

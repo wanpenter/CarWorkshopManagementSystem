@@ -48,6 +48,7 @@ function App() {
   const [errorMessage, setErrorMessage] = useState("");
   const [activeTab, setActiveTab] = useState("dashboard");
   const [ownerFilter, setOwnerFilter] = useState("");
+  const [appointmentPreset, setAppointmentPreset] = useState(null);
   const [mutating, setMutating] = useState(false);
   const [notice, setNotice] = useState(() => {
     if (initialConfig.invalidStoredValue) return { tone: "error", message: "The saved API address was invalid, so the local default is being used." };
@@ -80,6 +81,7 @@ function App() {
     setServices([]);
     setMechanics([]);
     setOwnerFilter("");
+    setAppointmentPreset(null);
     setActiveTab("dashboard");
     setDeleteTarget(null);
     setReceiptAppointmentId(null);
@@ -451,6 +453,17 @@ function App() {
     window.requestAnimationFrame(() => document.getElementById("vehicles-nav")?.focus());
   }
 
+  function openAppointments(preset = {}) {
+    setAppointmentPreset({
+      status: preset.status ?? "",
+      mechanic: preset.mechanic ?? "",
+      appointmentId: preset.appointmentId ?? null,
+      token: `${Date.now()}-${Math.random()}`
+    });
+    setActiveTab("appointments");
+    window.requestAnimationFrame(() => document.getElementById("appointments-nav")?.focus());
+  }
+
   const receiptAppointment = useMemo(
     () => receiptAppointmentId === null ? null : appointments.find((item) => Number(item.id) === receiptAppointmentId) ?? null,
     [appointments, receiptAppointmentId]
@@ -465,7 +478,7 @@ function App() {
       {sessionUser && authStatus === "ready" ? <WorkshopShell user={sessionUser} onLogout={logout} signingOut={authBusy} activeTab={activeTab} counts={{ customers: customers.length, vehicles: vehicles.length, appointments: appointments.length, services: services.length, mechanics: mechanics.length }} status={status} mutating={mutating || authBusy} onNavigate={setActiveTab} onOpenSettings={openSettings}>
       <main id="main-content" tabIndex={-1}>
         {notice && <div className="notice-container no-print"><Notice notice={notice} onDismiss={() => setNotice(null)} /></div>}
-        <DashboardSection active={activeTab === "dashboard"} status={status} errorMessage={errorMessage} customers={customers} vehicles={vehicles} services={services} mechanics={mechanics} appointments={appointments} busy={busy} onRetry={reloadRecords} onOpenSettings={openSettings} onNavigate={setActiveTab} />
+        <DashboardSection active={activeTab === "dashboard"} status={status} errorMessage={errorMessage} customers={customers} vehicles={vehicles} services={services} mechanics={mechanics} appointments={appointments} busy={busy} onRetry={reloadRecords} onOpenSettings={openSettings} onNavigate={setActiveTab} onOpenAppointments={openAppointments} />
         <CustomersSection
           active={activeTab === "customers"}
           status={status}
@@ -504,6 +517,7 @@ function App() {
           appointments={appointments}
           services={services}
           mechanics={mechanics}
+          preset={appointmentPreset}
           onAssignMechanic={assignMechanic}
           onTransitionStatus={transitionAppointmentStatus}
           onRecordService={recordService}

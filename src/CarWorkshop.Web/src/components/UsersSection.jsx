@@ -303,12 +303,12 @@ export default function UsersSection({ active, currentUser, api, onSessionExpire
                     <thead><tr><TableHead>User</TableHead><TableHead>Role</TableHead><TableHead>Status</TableHead><TableHead>Created</TableHead><TableHead className="w-24">Action</TableHead></tr></thead>
                     <tbody>
                       {visibleUsers.map((user) => (
-                        <tr key={user.id} className={Number(user.id) === Number(selectedId) ? "bg-selected" : ""}>
-                          <TableCell><strong className="block">{user.fullName}</strong><span className="text-ink-soft">{user.username}</span></TableCell>
-                          <TableCell>{user.role}</TableCell>
-                          <TableCell><span className={`status-text ${user.isActive === false ? "text-ink-soft" : "text-success"}`}>{accountStatus(user)}</span></TableCell>
-                          <TableCell>{friendlyDate(user.createdAtUtc)}</TableCell>
-                          <TableCell><button type="button" className="row-action" disabled={actionBusy} onClick={() => beginEdit(user)}>Edit</button></TableCell>
+                        <tr key={user.id} className={Number(user.id) === Number(selectedId) ? "bg-selected" : "transition-colors hover:bg-selected"}>
+                          <TableCell><strong className="block">{user.fullName}</strong><span className="text-xs text-ink-soft">{user.username}</span></TableCell>
+                          <TableCell><span className={`status-text ${user.role === "Admin" ? "pill-rust" : "pill-teal"}`}>{user.role}</span></TableCell>
+                          <TableCell><span className={`status-text ${user.isActive === false ? "pill-muted" : "pill-success"}`}>{accountStatus(user)}</span></TableCell>
+                          <TableCell className="whitespace-nowrap">{friendlyDate(user.createdAtUtc)}</TableCell>
+                          <TableCell className="whitespace-nowrap"><button type="button" className="row-action" disabled={actionBusy} onClick={() => beginEdit(user)}>Edit</button></TableCell>
                         </tr>
                       ))}
                     </tbody>
@@ -319,8 +319,8 @@ export default function UsersSection({ active, currentUser, api, onSessionExpire
                   {visibleUsers.map((user) => (
                     <article key={user.id} className={`record-card ${Number(user.id) === Number(selectedId) ? "border-rust bg-selected" : "border-paper-line bg-white"}`}>
                       <MobileDatum label="User"><strong>{user.fullName}</strong><br /><span className="text-ink-soft">{user.username}</span></MobileDatum>
-                      <MobileDatum label="Role">{user.role}</MobileDatum>
-                      <MobileDatum label="Status">{accountStatus(user)}</MobileDatum>
+                      <MobileDatum label="Role"><span className={`status-text ${user.role === "Admin" ? "pill-rust" : "pill-teal"}`}>{user.role}</span></MobileDatum>
+                      <MobileDatum label="Status"><span className={`status-text ${user.isActive === false ? "pill-muted" : "pill-success"}`}>{accountStatus(user)}</span></MobileDatum>
                       <MobileDatum label="Created">{friendlyDate(user.createdAtUtc)}</MobileDatum>
                       <button type="button" className="button button-secondary mt-3 w-full" disabled={actionBusy} onClick={() => beginEdit(user)}>Edit account</button>
                     </article>

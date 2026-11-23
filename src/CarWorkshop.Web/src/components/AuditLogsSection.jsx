@@ -25,9 +25,10 @@ function formatActionLabel(action) {
 
 function actionTone(action) {
   const value = String(action ?? "");
-  if (value.includes("Deleted") || value.includes("Failed") || value.includes("Locked")) return "text-danger";
-  if (value.includes("Created") || value.includes("ServiceRecorded")) return "text-success";
-  return "text-rust-dark";
+  if (value.includes("Deleted") || value.includes("Failed") || value.includes("Locked") || value.includes("Rejected")) return "pill-danger";
+  if (value.includes("Created") || value.includes("ServiceRecorded") || value.includes("Completed")) return "pill-success";
+  if (value.includes("Assigned") || value.includes("StatusChanged")) return "pill-teal";
+  return "pill-rust";
 }
 
 function formatFieldValue(value) {
@@ -259,14 +260,13 @@ export default function AuditLogsSection({ active, api, onSessionExpired, onNoti
         ) : (
           <>
             <div className="hidden overflow-x-auto border-b border-line-strong desk:block">
-              <table className="w-full min-w-210 border-collapse tabular-nums">
+              <table className="w-full border-collapse tabular-nums">
                 <thead>
                   <tr>
                     <TableHead>When</TableHead>
                     <TableHead>Actor</TableHead>
                     <TableHead>Action</TableHead>
-                    <TableHead>Target</TableHead>
-                    <TableHead>Summary</TableHead>
+                    <TableHead>Target &amp; summary</TableHead>
                     <TableHead className="text-right"><span className="sr-only">Actions</span></TableHead>
                   </tr>
                 </thead>
@@ -281,11 +281,11 @@ export default function AuditLogsSection({ active, api, onSessionExpired, onNoti
                       <TableCell className="whitespace-nowrap">
                         <span className={`status-text ${actionTone(entry.action)}`}>{formatActionLabel(entry.action)}</span>
                       </TableCell>
-                      <TableCell className="whitespace-nowrap">
-                        {entry.entityType}{entry.entityId ? ` #${entry.entityId}` : ""}
+                      <TableCell className="max-w-72">
+                        <strong className="block text-xs">{entry.entityType}{entry.entityId ? ` #${entry.entityId}` : ""}</strong>
+                        <span className="mt-0.5 block text-xs text-ink-soft [overflow-wrap:anywhere]">{entry.summary}</span>
                       </TableCell>
-                      <TableCell className="max-w-72 [overflow-wrap:anywhere]">{entry.summary}</TableCell>
-                      <TableCell className="text-right">
+                      <TableCell className="text-right whitespace-nowrap">
                         <button
                           type="button"
                           className="row-action"
@@ -309,7 +309,7 @@ export default function AuditLogsSection({ active, api, onSessionExpired, onNoti
                 >
                   <MobileDatum label="When"><strong>{formatTimestamp(entry.createdAtUtc)}</strong></MobileDatum>
                   <MobileDatum label="Actor">{entry.actorUsername} ({entry.actorRole})</MobileDatum>
-                  <MobileDatum label="Action"><span className={actionTone(entry.action)}>{formatActionLabel(entry.action)}</span></MobileDatum>
+                  <MobileDatum label="Action"><span className={`status-text ${actionTone(entry.action)}`}>{formatActionLabel(entry.action)}</span></MobileDatum>
                   <MobileDatum label="Target">{entry.entityType}{entry.entityId ? ` #${entry.entityId}` : ""}</MobileDatum>
                   <MobileDatum label="Summary">{entry.summary}</MobileDatum>
                   <div className="mt-2 border-t border-paper-line pt-2">

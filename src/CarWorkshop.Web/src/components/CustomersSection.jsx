@@ -3,6 +3,8 @@ import { getProblemFieldErrors, validateCustomer } from "../api.js";
 import {
   FormError,
   MobileDatum,
+  PaginationBar,
+  ResultsBar,
   StatePanel,
   TableCell,
   TableHead,
@@ -10,6 +12,7 @@ import {
   TextField
 } from "./Shared.jsx";
 
+const PAGE_SIZE = 10;
 const emptyCustomer = { fullName: "", phone: "", address: "" };
 
 export default function CustomersSection({
@@ -25,6 +28,7 @@ export default function CustomersSection({
   onViewVehicles
 }) {
   const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
   const [selectedId, setSelectedId] = useState(null);
   const [form, setForm] = useState(emptyCustomer);
   const [errors, setErrors] = useState({});
@@ -40,6 +44,17 @@ export default function CustomersSection({
         .includes(query)
     );
   }, [customers, search]);
+
+  const totalPages = Math.max(1, Math.ceil(visibleCustomers.length / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const paginatedCustomers = useMemo(
+    () => visibleCustomers.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE),
+    [safePage, visibleCustomers]
+  );
+
+  useEffect(() => {
+    setPage(1);
+  }, [search]);
 
   useEffect(() => {
     if (selectedId !== null && !customers.some((customer) => Number(customer.id) === selectedId)) {
@@ -123,11 +138,25 @@ export default function CustomersSection({
             />
           </div>
 
+          {status === "ready" && customers.length > 0 && (
+            <ResultsBar
+              visibleCount={visibleCustomers.length}
+              totalCount={customers.length}
+              noun="customer"
+              hasFilters={Boolean(search)}
+              onClearFilters={() => setSearch("")}
+            />
+          )}
+
           <CustomerRecords
             status={status}
             errorMessage={errorMessage}
             customers={customers}
-            visibleCustomers={visibleCustomers}
+            visibleCustomers={paginatedCustomers}
+            totalVisibleCount={visibleCustomers.length}
+            page={safePage}
+            totalPages={totalPages}
+            onPageChange={setPage}
             selectedId={selectedId}
             busy={busy}
             onOpenSettings={onOpenSettings}
@@ -165,7 +194,7 @@ export default function CustomersSection({
 }
 
 function CustomerRecords(props) {
-  const { status, errorMessage, customers, visibleCustomers, selectedId, busy, onOpenSettings, onRetry, onAdd, onClearSearch, onEdit, onDelete, onViewVehicles } = props;
+  const { status, errorMessage, customers, visibleCustomers, totalVisibleCount, page, totalPages, onPageChange, selectedId, busy, onOpenSettings, onRetry, onAdd, onClearSearch, onEdit, onDelete, onViewVehicles } = props;
   if (status === "disconnected") {
     return <StatePanel title="Connect your workshop API" body="Add the backend address to load customer and vehicle records."><button className="button button-primary" type="button" onClick={onOpenSettings}>Set API address</button></StatePanel>;
   }
@@ -176,23 +205,25 @@ function CustomerRecords(props) {
   if (customers.length === 0) {
     return <StatePanel title="No customers recorded yet" body="Add the first customer, then register their vehicle."><button className="button button-primary" type="button" onClick={onAdd}>Add first customer</button></StatePanel>;
   }
-  if (visibleCustomers.length === 0) {
+  if (totalVisibleCount === 0) {
     return <StatePanel compact title="No matching customers" body="Change the search text to see other customer records."><button className="button button-quiet" type="button" onClick={onClearSearch}>Clear search</button></StatePanel>;
   }
 
   return (
     <>
       <div className="hidden overflow-x-auto border-b border-line-strong desk:block">
-        <table className="w-full min-w-190 border-collapse tabular-nums">
-          <thead><tr><TableHead>Customer</TableHead><TableHead>Phone</TableHead><TableHead>Address</TableHead><TableHead>Vehicles</TableHead><TableHead className="text-right"><span className="sr-only">Actions</span></TableHead></tr></thead>
+        <table className="w-full border-collapse tabular-nums">
+          <thead><tr><TableHead>Customer</TableHead><TableHead>Phone</TableHead><TableHead>Vehicles</TableHead><TableHead className="text-right"><span className="sr-only">Actions</span></TableHead></tr></thead>
           <tbody>
             {visibleCustomers.map((customer) => (
               <tr key={customer.id} className={Number(customer.id) === selectedId ? "bg-selected" : "transition-colors hover:bg-selected"}>
-                <TableCell className="font-bold">{customer.fullName}</TableCell>
-                <TableCell>{customer.phone}</TableCell>
-                <TableCell className="max-w-72 text-ink-soft">{customer.address || "Not provided"}</TableCell>
-                <TableCell><button className="count-link" type="button" disabled={busy} onClick={() => onViewVehicles(Number(customer.id))}>{Number(customer.vehicleCount ?? 0)} {Number(customer.vehicleCount ?? 0) === 1 ? "vehicle" : "vehicles"}</button></TableCell>
-                <TableCell><CustomerActions customer={customer} busy={busy} onEdit={onEdit} onDelete={onDelete} /></TableCell>
+                <TableCell className="max-w-80">
+                  <strong className="block">{customer.fullName}</strong>
+                  <span className="mt-0.5 block text-xs text-ink-soft [overflow-wrap:anywhere]">{customer.address || "No address provided"}</span>
+                </TableCell>
+                <TableCell className="whitespace-nowrap">{customer.phone}</TableCell>
+                <TableCell className="whitespace-nowrap"><button className="count-link" type="button" disabled={busy} onClick={() => onViewVehicles(Number(customer.id))}>{Number(customer.vehicleCount ?? 0)} {Number(customer.vehicleCount ?? 0) === 1 ? "vehicle" : "vehicles"}</button></TableCell>
+                <TableCell className="whitespace-nowrap"><CustomerActions customer={customer} busy={busy} onEdit={onEdit} onDelete={onDelete} /></TableCell>
               </tr>
             ))}
           </tbody>
@@ -209,6 +240,7 @@ function CustomerRecords(props) {
           </article>
         ))}
       </div>
+      <PaginationBar page={page} totalPages={totalPages} totalCount={totalVisibleCount} pageSize={PAGE_SIZE} onPageChange={onPageChange} />
     </>
   );
 }

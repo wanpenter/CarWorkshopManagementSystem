@@ -4,12 +4,16 @@ import { VehicleServiceHistory } from "./ServiceRecord.jsx";
 import {
   FormError,
   MobileDatum,
+  PaginationBar,
+  ResultsBar,
   SelectField,
   StatePanel,
   TableCell,
   TableHead,
   TextField
 } from "./Shared.jsx";
+
+const PAGE_SIZE = 10;
 
 const blankVehicle = {
   customerId: "",
@@ -39,6 +43,7 @@ export default function VehiclesSection({
   onOpenReceipt
 }) {
   const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
   const [selectedId, setSelectedId] = useState(null);
   const [historyId, setHistoryId] = useState(null);
   const [form, setForm] = useState(blankVehicle);
@@ -58,6 +63,17 @@ export default function VehiclesSection({
         .includes(query);
     });
   }, [vehicles, search, ownerFilter]);
+
+  const totalPages = Math.max(1, Math.ceil(visibleVehicles.length / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const paginatedVehicles = useMemo(
+    () => visibleVehicles.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE),
+    [safePage, visibleVehicles]
+  );
+
+  useEffect(() => {
+    setPage(1);
+  }, [search, ownerFilter]);
 
   useEffect(() => {
     if (selectedId !== null && !vehicles.some((vehicle) => Number(vehicle.id) === selectedId)) {
@@ -180,12 +196,26 @@ export default function VehiclesSection({
             </div>
           </div>
 
+          {status === "ready" && vehicles.length > 0 && (
+            <ResultsBar
+              visibleCount={visibleVehicles.length}
+              totalCount={vehicles.length}
+              noun="vehicle"
+              hasFilters={Boolean(search || ownerFilter)}
+              onClearFilters={() => { setSearch(""); onOwnerFilterChange(""); }}
+            />
+          )}
+
           <VehicleRecords
             status={status}
             errorMessage={errorMessage}
             customers={customers}
             vehicles={vehicles}
-            visibleVehicles={visibleVehicles}
+            visibleVehicles={paginatedVehicles}
+            totalVisibleCount={visibleVehicles.length}
+            page={safePage}
+            totalPages={totalPages}
+            onPageChange={setPage}
             ownerFilter={ownerFilter}
             selectedId={selectedId}
             historyId={historyId}
@@ -258,7 +288,7 @@ export default function VehiclesSection({
 }
 
 function VehicleRecords(props) {
-  const { status, errorMessage, customers, vehicles, visibleVehicles, ownerFilter, selectedId, historyId, busy, onOpenSettings, onRetry, onAdd, onAddCustomer, onClearFilters, onEdit, onHistory, onDelete } = props;
+  const { status, errorMessage, customers, vehicles, visibleVehicles, totalVisibleCount, page, totalPages, onPageChange, ownerFilter, selectedId, historyId, busy, onOpenSettings, onRetry, onAdd, onAddCustomer, onClearFilters, onEdit, onHistory, onDelete } = props;
   const isHighlighted = (vehicle) => Number(vehicle.id) === selectedId || Number(vehicle.id) === historyId;
   if (status === "disconnected") {
     return <StatePanel title="Connect your workshop API" body="Add the backend address to load customer and vehicle records."><button className="button button-primary" type="button" onClick={onOpenSettings}>Set API address</button></StatePanel>;
@@ -273,25 +303,26 @@ function VehicleRecords(props) {
   if (vehicles.length === 0) {
     return <StatePanel title="No vehicles registered yet" body="Register the first vehicle and choose its owner."><button className="button button-primary" type="button" onClick={onAdd}>Register first vehicle</button></StatePanel>;
   }
-  if (visibleVehicles.length === 0) {
+  if (totalVisibleCount === 0) {
     return <StatePanel compact title={ownerFilter ? "No vehicles for this view" : "No matching vehicles"} body="Clear the search and owner filter to see all vehicle records."><button className="button button-quiet" type="button" onClick={onClearFilters}>Clear filters</button></StatePanel>;
   }
 
   return (
     <>
       <div className="hidden overflow-x-auto border-b border-line-strong desk:block">
-        <table className="w-full min-w-220 border-collapse tabular-nums">
-          <thead><tr><TableHead>Registration</TableHead><TableHead>Vehicle</TableHead><TableHead>Owner</TableHead><TableHead>Year</TableHead><TableHead>Mileage</TableHead><TableHead>Status</TableHead><TableHead className="text-right"><span className="sr-only">Actions</span></TableHead></tr></thead>
+        <table className="w-full border-collapse tabular-nums">
+          <thead><tr><TableHead>Vehicle</TableHead><TableHead>Owner</TableHead><TableHead>Mileage</TableHead><TableHead>Status</TableHead><TableHead className="text-right"><span className="sr-only">Actions</span></TableHead></tr></thead>
           <tbody>
             {visibleVehicles.map((vehicle) => (
               <tr key={vehicle.id} className={isHighlighted(vehicle) ? "bg-selected" : "transition-colors hover:bg-selected"}>
-                <TableCell className="font-bold tracking-[0.03em]">{vehicle.registrationNumber}</TableCell>
-                <TableCell>{vehicle.make} {vehicle.model}</TableCell>
+                <TableCell>
+                  <strong className="block tracking-[0.03em]">{vehicle.registrationNumber}</strong>
+                  <span className="mt-0.5 block text-xs text-ink-soft">{vehicle.make} {vehicle.model}{vehicle.year ? ` · ${vehicle.year}` : ""}</span>
+                </TableCell>
                 <TableCell>{vehicle.customerName}</TableCell>
-                <TableCell>{vehicle.year ?? "Not provided"}</TableCell>
-                <TableCell>{Number(vehicle.mileage ?? 0).toLocaleString("en-MY")} km</TableCell>
-                <TableCell><span className={vehicle.isActive === false ? "status-text text-ink-soft" : "status-text text-success"}>{vehicle.isActive === false ? "Inactive" : "Active"}</span></TableCell>
-                <TableCell><VehicleActions vehicle={vehicle} busy={busy} onEdit={onEdit} onHistory={onHistory} onDelete={onDelete} /></TableCell>
+                <TableCell className="whitespace-nowrap">{Number(vehicle.mileage ?? 0).toLocaleString("en-MY")} km</TableCell>
+                <TableCell><span className={`status-text ${vehicle.isActive === false ? "pill-muted" : "pill-success"}`}>{vehicle.isActive === false ? "Inactive" : "Active"}</span></TableCell>
+                <TableCell className="whitespace-nowrap"><VehicleActions vehicle={vehicle} busy={busy} onEdit={onEdit} onHistory={onHistory} onDelete={onDelete} /></TableCell>
               </tr>
             ))}
           </tbody>
@@ -305,11 +336,12 @@ function VehicleRecords(props) {
             <MobileDatum label="Owner">{vehicle.customerName}</MobileDatum>
             <MobileDatum label="Year">{vehicle.year ?? "Not provided"}</MobileDatum>
             <MobileDatum label="Mileage">{Number(vehicle.mileage ?? 0).toLocaleString("en-MY")} km</MobileDatum>
-            <MobileDatum label="Status">{vehicle.isActive === false ? "Inactive" : "Active"}</MobileDatum>
+            <MobileDatum label="Status"><span className={`status-text ${vehicle.isActive === false ? "pill-muted" : "pill-success"}`}>{vehicle.isActive === false ? "Inactive" : "Active"}</span></MobileDatum>
             <div className="mt-2 border-t border-paper-line pt-2"><VehicleActions vehicle={vehicle} busy={busy} onEdit={onEdit} onHistory={onHistory} onDelete={onDelete} /></div>
           </article>
         ))}
       </div>
+      <PaginationBar page={page} totalPages={totalPages} totalCount={totalVisibleCount} pageSize={PAGE_SIZE} onPageChange={onPageChange} />
     </>
   );
 }

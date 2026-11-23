@@ -13,6 +13,8 @@ import {
 import {
   FormError,
   MobileDatum,
+  PaginationBar,
+  ResultsBar,
   SelectField,
   StatePanel,
   TableCell,
@@ -20,6 +22,15 @@ import {
   TextAreaField,
   TextField
 } from "./Shared.jsx";
+
+const PAGE_SIZE = 10;
+const DAILY_CAPACITY = 10;
+const dayKey = (date) => new Intl.DateTimeFormat("en-CA", {
+  timeZone: "Asia/Kuala_Lumpur",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit"
+}).format(new Date(date));
 
 function nextAppointmentTime() {
   const next = new Date(Date.now() + 60 * 60 * 1000);
@@ -58,13 +69,13 @@ const statusLabels = {
 };
 
 const statusClasses = {
-  Requested: "text-rust-dark",
-  Confirmed: "text-success",
-  Rejected: "text-danger",
-  Scheduled: "text-rust-dark",
-  InProgress: "text-focus",
-  Completed: "text-success",
-  Cancelled: "text-ink-soft"
+  Requested: "pill-rust",
+  Confirmed: "pill-success",
+  Rejected: "pill-danger",
+  Scheduled: "pill-rust",
+  InProgress: "pill-teal",
+  Completed: "pill-success",
+  Cancelled: "pill-muted"
 };
 
 function formatAppointmentTime(value) {
@@ -91,6 +102,7 @@ export default function AppointmentsSection({
   appointments,
   services,
   mechanics,
+  preset,
   onAssignMechanic,
   onTransitionStatus,
   onRecordService,
@@ -107,9 +119,12 @@ export default function AppointmentsSection({
   const [search, setSearch] = useState("");
   const [customerFilter, setCustomerFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
+  const [mechanicFilter, setMechanicFilter] = useState("");
+  const [page, setPage] = useState(1);
   const [selectedId, setSelectedId] = useState(null);
   const [form, setForm] = useState(() => makeBlankAppointment());
   const [errors, setErrors] = useState({});
+  const lastPresetTokenRef = useRef(null);
   const editorPanelRef = useRef(null);
   const editorTitleRef = useRef(null);
   const customerRef = useRef(null);
@@ -140,12 +155,33 @@ export default function AppointmentsSection({
     return appointments.filter((appointment) => {
       if (customerFilter && Number(appointment.customerId) !== Number(customerFilter)) return false;
       if (statusFilter && appointment.status !== statusFilter) return false;
+      if (mechanicFilter === "unassigned") {
+        if (appointment.mechanicId || !["Confirmed", "Scheduled"].includes(appointment.status)) return false;
+      } else if (mechanicFilter && Number(appointment.mechanicId) !== Number(mechanicFilter)) {
+        return false;
+      }
       if (!query) return true;
       return `${appointment.customerName ?? ""} ${appointment.registrationNumber ?? ""} ${appointment.vehicleName ?? ""} ${bookedServices(appointment)} ${appointment.notes ?? ""} ${appointment.mechanicName ?? ""}`
         .toLocaleLowerCase()
         .includes(query);
     });
-  }, [appointments, customerFilter, search, statusFilter]);
+  }, [appointments, customerFilter, mechanicFilter, search, statusFilter]);
+
+  const totalPages = Math.max(1, Math.ceil(visibleAppointments.length / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const paginatedAppointments = useMemo(
+    () => visibleAppointments.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE),
+    [safePage, visibleAppointments]
+  );
+
+  const todayActiveCount = useMemo(() => {
+    const today = dayKey(new Date());
+    return appointments.filter(
+      (appointment) =>
+        dayKey(appointment.scheduledAtUtc) === today &&
+        !["Cancelled", "Rejected"].includes(appointment.status)
+    ).length;
+  }, [appointments]);
 
   const appointmentVehicles = useMemo(() => {
     const matchingOwner = vehicles.filter((vehicle) => Number(vehicle.customerId) === Number(form.customerId));
@@ -196,6 +232,66 @@ export default function AppointmentsSection({
       return customerExists ? current : makeBlankAppointment(customers[0]?.id ?? "");
     });
   }, [customers, selectedId]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [search, customerFilter, statusFilter, mechanicFilter]);
+
+  useEffect(() => {
+    if (!preset?.token || preset.token === lastPresetTokenRef.current) return;
+    lastPresetTokenRef.current = preset.token;
+    setSearch("");
+    setCustomerFilter("");
+    setPage(1);
+    if (preset.appointmentId != null) {
+      setStatusFilter("");
+      setMechanicFilter("");
+      const target = appointments.find((item) => Number(item.id) === Number(preset.appointmentId));
+      if (target) {
+        setSelectedId(Number(target.id));
+        setForm({
+          customerId: String(target.customerId ?? ""),
+          vehicleId: String(target.vehicleId ?? ""),
+          scheduledAtLocal: toWorkshopDateTimeInput(target.scheduledAtUtc),
+          serviceIds: target.services?.map((service) => Number(service.serviceId)) ?? [],
+          notes: String(target.notes ?? ""),
+          status: APPOINTMENT_STATUSES.includes(target.status) ? target.status : "Requested"
+        });
+        setErrors({});
+        window.requestAnimationFrame(() => {
+          editorPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+          editorTitleRef.current?.focus({ preventScroll: true });
+        });
+      }
+      return;
+    }
+    setStatusFilter(preset.status ?? "");
+    setMechanicFilter(preset.mechanic ?? "");
+  }, [appointments, preset]);
+
+  async function handleTransitionStatus(id, nextStatus, reason) {
+    const updated = await onTransitionStatus(id, nextStatus, reason);
+    if (statusFilter && updated?.status && updated.status !== statusFilter) {
+      const remaining = appointments.filter(
+        (item) => Number(item.id) !== Number(id) && item.status === statusFilter
+      ).length;
+      if (remaining === 0) setStatusFilter("");
+    }
+    return updated;
+  }
+
+  async function handleAssignMechanic(appointmentId, mechanicId) {
+    await onAssignMechanic(appointmentId, mechanicId);
+    if (mechanicFilter === "unassigned") {
+      const remaining = appointments.filter(
+        (item) =>
+          Number(item.id) !== Number(appointmentId) &&
+          ["Confirmed", "Scheduled"].includes(item.status) &&
+          !item.mechanicId
+      ).length;
+      if (remaining === 0) setMechanicFilter("");
+    }
+  }
 
   function updateField(field, value) {
     setForm((current) => {
@@ -302,6 +398,28 @@ export default function AppointmentsSection({
             </button>
           </div>
 
+          {connectionStatus === "ready" && (
+            <div className="capacity-strip" aria-label="Today's workshop slot capacity">
+              <div>
+                <strong className="text-ink">Today&apos;s capacity</strong>
+                <span className="ml-2 text-ink-soft tabular-nums">
+                  {todayActiveCount} / {DAILY_CAPACITY} slots booked ({Math.max(0, DAILY_CAPACITY - todayActiveCount)} remaining)
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="capacity-track" aria-hidden="true">
+                  <div
+                    className={`capacity-fill ${todayActiveCount >= DAILY_CAPACITY ? "is-full" : todayActiveCount >= 8 ? "is-busy" : ""}`}
+                    style={{ width: `${Math.min(100, (todayActiveCount / DAILY_CAPACITY) * 100)}%` }}
+                  />
+                </div>
+                <span className={`font-bold tabular-nums ${todayActiveCount >= DAILY_CAPACITY ? "text-danger" : todayActiveCount >= 8 ? "text-rust-dark" : "text-ink-soft"}`}>
+                  {Math.min(100, Math.round((todayActiveCount / DAILY_CAPACITY) * 100))}%
+                </span>
+              </div>
+            </div>
+          )}
+
           <div className="appointment-filters">
             <div className="appointment-search">
               <label className="mb-2 block font-bold" htmlFor="appointment-search">Search appointments</label>
@@ -321,7 +439,25 @@ export default function AppointmentsSection({
                 {APPOINTMENT_STATUSES.map((value) => <option key={value} value={value}>{statusLabels[value]}</option>)}
               </select>
             </div>
+            <div>
+              <label className="mb-2 block font-bold" htmlFor="appointment-mechanic-filter">Assigned mechanic</label>
+              <select id="appointment-mechanic-filter" className="control-input" value={mechanicFilter} disabled={connectionStatus !== "ready"} onChange={(event) => setMechanicFilter(event.target.value)}>
+                <option value="">All mechanics</option>
+                <option value="unassigned">Unassigned (ready to assign)</option>
+                {mechanics.map((mechanic) => <option key={mechanic.id} value={mechanic.id}>{mechanic.fullName}{mechanic.isActive ? "" : " (inactive)"}</option>)}
+              </select>
+            </div>
           </div>
+
+          {connectionStatus === "ready" && appointments.length > 0 && (
+            <ResultsBar
+              visibleCount={visibleAppointments.length}
+              totalCount={appointments.length}
+              noun="appointment"
+              hasFilters={Boolean(search || customerFilter || statusFilter || mechanicFilter)}
+              onClearFilters={() => { setSearch(""); setCustomerFilter(""); setStatusFilter(""); setMechanicFilter(""); }}
+            />
+          )}
 
           <AppointmentRecords
             connectionStatus={connectionStatus}
@@ -330,8 +466,12 @@ export default function AppointmentsSection({
             vehicles={vehicles}
             appointments={appointments}
             services={services}
-            visibleAppointments={visibleAppointments}
-            hasFilters={Boolean(search || customerFilter || statusFilter)}
+            visibleAppointments={paginatedAppointments}
+            totalVisibleCount={visibleAppointments.length}
+            page={safePage}
+            totalPages={totalPages}
+            onPageChange={setPage}
+            hasFilters={Boolean(search || customerFilter || statusFilter || mechanicFilter)}
             selectedId={selectedId}
             busy={busy}
             onOpenSettings={onOpenSettings}
@@ -340,7 +480,7 @@ export default function AppointmentsSection({
             onAddCustomer={onAddCustomer}
             onAddVehicle={onAddVehicle}
             onAddService={onAddService}
-            onClearFilters={() => { setSearch(""); setCustomerFilter(""); setStatusFilter(""); }}
+            onClearFilters={() => { setSearch(""); setCustomerFilter(""); setStatusFilter(""); setMechanicFilter(""); }}
             onEdit={beginEdit}
             onOpenReceipt={onOpenReceipt}
           />
@@ -383,7 +523,7 @@ export default function AppointmentsSection({
                   ready={connectionStatus === "ready"}
                   dirty={Boolean(bookingDirty)}
                   legacyWithoutServices={Boolean(legacyWithoutServices)}
-                  onTransition={onTransitionStatus}
+                  onTransition={handleTransitionStatus}
                   onOpenReceipt={onOpenReceipt}
                 />
               )}
@@ -447,7 +587,7 @@ export default function AppointmentsSection({
                 </fieldset>
                 {terminalAppointment && <button className="button button-secondary w-full" type="button" onClick={() => resetEditor()}>Close record</button>}
               </form>
-              {selectedAppointment && <MechanicAssignment key={`${selectedAppointment.id}-${selectedAppointment.mechanicId ?? "unassigned"}`} appointment={selectedAppointment} mechanics={mechanics} busy={busy} ready={connectionStatus === "ready"} dirty={bookingDirty} onAssign={onAssignMechanic} onAddMechanic={onAddMechanic} />}
+              {selectedAppointment && <MechanicAssignment key={`${selectedAppointment.id}-${selectedAppointment.mechanicId ?? "unassigned"}`} appointment={selectedAppointment} mechanics={mechanics} busy={busy} ready={connectionStatus === "ready"} dirty={bookingDirty} onAssign={handleAssignMechanic} onAddMechanic={onAddMechanic} />}
               {connectionStatus !== "ready" && <p className="mt-6 border-t border-paper-line pt-4 text-ink-soft">The editor unlocks after the API connects successfully.</p>}
             </>
           )}
@@ -458,7 +598,7 @@ export default function AppointmentsSection({
 }
 
 function AppointmentRecords(props) {
-  const { connectionStatus, errorMessage, customers, vehicles, services, appointments, visibleAppointments, hasFilters, selectedId, busy, onOpenSettings, onRetry, onAdd, onAddCustomer, onAddVehicle, onAddService, onClearFilters, onEdit, onOpenReceipt } = props;
+  const { connectionStatus, errorMessage, customers, vehicles, services, appointments, visibleAppointments, totalVisibleCount, page, totalPages, onPageChange, hasFilters, selectedId, busy, onOpenSettings, onRetry, onAdd, onAddCustomer, onAddVehicle, onAddService, onClearFilters, onEdit, onOpenReceipt } = props;
   if (connectionStatus === "disconnected") {
     return <StatePanel title="Connect your workshop API" body="Add the backend address to load appointment records."><button className="button button-primary" type="button" onClick={onOpenSettings}>Set API address</button></StatePanel>;
   }
@@ -478,25 +618,31 @@ function AppointmentRecords(props) {
   if (appointments.length === 0) {
     return <StatePanel title="No appointments booked yet" body="Book the first workshop visit and choose the service required."><button className="button button-primary" type="button" onClick={onAdd}>Book first appointment</button></StatePanel>;
   }
-  if (visibleAppointments.length === 0) {
+  if (totalVisibleCount === 0) {
     return <StatePanel compact title="No matching appointments" body="Clear the search and filters to see all bookings.">{hasFilters && <button className="button button-quiet" type="button" onClick={onClearFilters}>Clear filters</button>}</StatePanel>;
   }
 
   return (
     <>
       <div className="hidden overflow-x-auto border-b border-line-strong desk:block">
-        <table className="w-full min-w-245 border-collapse tabular-nums">
-          <thead><tr><TableHead>When</TableHead><TableHead>Customer</TableHead><TableHead>Vehicle</TableHead><TableHead>Service</TableHead><TableHead>Mechanic</TableHead><TableHead>Status</TableHead><TableHead className="text-right"><span className="sr-only">Actions</span></TableHead></tr></thead>
+        <table className="w-full border-collapse tabular-nums">
+          <thead><tr><TableHead>When</TableHead><TableHead>Customer &amp; vehicle</TableHead><TableHead>Service &amp; mechanic</TableHead><TableHead>Status</TableHead><TableHead className="text-right"><span className="sr-only">Actions</span></TableHead></tr></thead>
           <tbody>
             {visibleAppointments.map((appointment) => (
               <tr key={appointment.id} className={Number(appointment.id) === selectedId ? "bg-selected" : "transition-colors hover:bg-selected"}>
                 <TableCell className="font-semibold whitespace-nowrap">{formatAppointmentTime(appointment.scheduledAtUtc)}</TableCell>
-                <TableCell>{appointment.customerName}</TableCell>
-                <TableCell><strong>{appointment.registrationNumber}</strong><span className="mt-0.5 block text-sm text-ink-soft">{appointment.vehicleName}</span></TableCell>
-                <TableCell className="max-w-70">{bookedServices(appointment)}<span className="mt-0.5 block text-sm text-ink-soft">{appointment.services?.length ? `${appointment.services.reduce((sum, service) => sum + Number(service.durationMinutes || 0), 0)} min · ${money(appointment.services.reduce((sum, service) => sum + Number(service.price || 0), 0))}` : "Legacy booking"}</span></TableCell>
-                <TableCell>{appointment.mechanicName || "Unassigned"}</TableCell>
-                <TableCell><span className={`status-text ${statusClasses[appointment.status] ?? "text-ink-soft"}`}>{statusLabels[appointment.status] ?? appointment.status}</span></TableCell>
-                <TableCell><AppointmentActions appointment={appointment} busy={busy} onEdit={onEdit} onOpenReceipt={onOpenReceipt} /></TableCell>
+                <TableCell>
+                  <strong className="block">{appointment.customerName}</strong>
+                  <span className="mt-0.5 block text-xs text-ink-soft">{appointment.registrationNumber} · {appointment.vehicleName}</span>
+                </TableCell>
+                <TableCell className="max-w-68">
+                  <span className="block">{bookedServices(appointment)}</span>
+                  <span className="mt-0.5 block text-xs text-ink-soft">
+                    {appointment.services?.length ? `${appointment.services.reduce((sum, service) => sum + Number(service.durationMinutes || 0), 0)} min · ${money(appointment.services.reduce((sum, service) => sum + Number(service.price || 0), 0))}` : "Legacy booking"} · {appointment.mechanicName || "Unassigned"}
+                  </span>
+                </TableCell>
+                <TableCell><span className={`status-text ${statusClasses[appointment.status] ?? "pill-muted"}`}>{statusLabels[appointment.status] ?? appointment.status}</span></TableCell>
+                <TableCell className="whitespace-nowrap"><AppointmentActions appointment={appointment} busy={busy} onEdit={onEdit} onOpenReceipt={onOpenReceipt} /></TableCell>
               </tr>
             ))}
           </tbody>
@@ -511,11 +657,12 @@ function AppointmentRecords(props) {
             <MobileDatum label="Service">{bookedServices(appointment)}</MobileDatum>
             <MobileDatum label="Notes">{appointment.notes || "No notes"}</MobileDatum>
             <MobileDatum label="Mechanic">{appointment.mechanicName || "Unassigned"}</MobileDatum>
-            <MobileDatum label="Status"><span className={statusClasses[appointment.status] ?? "text-ink-soft"}>{statusLabels[appointment.status] ?? appointment.status}</span></MobileDatum>
+            <MobileDatum label="Status"><span className={`status-text ${statusClasses[appointment.status] ?? "pill-muted"}`}>{statusLabels[appointment.status] ?? appointment.status}</span></MobileDatum>
             <div className="mt-2 border-t border-paper-line pt-2"><AppointmentActions appointment={appointment} busy={busy} onEdit={onEdit} onOpenReceipt={onOpenReceipt} /></div>
           </article>
         ))}
       </div>
+      <PaginationBar page={page} totalPages={totalPages} totalCount={totalVisibleCount} pageSize={PAGE_SIZE} onPageChange={onPageChange} />
     </>
   );
 }
