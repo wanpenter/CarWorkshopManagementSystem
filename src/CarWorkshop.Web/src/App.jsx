@@ -20,6 +20,7 @@ import AccountSection from "./components/AccountSection.jsx";
 import UsersSection from "./components/UsersSection.jsx";
 import AuditLogsSection from "./components/AuditLogsSection.jsx";
 import ServiceReceiptDialog from "./components/ServiceReceiptDialog.jsx";
+import CustomerPortal from "./components/CustomerPortal.jsx";
 import "./auth.css";
 
 function App() {
@@ -189,7 +190,7 @@ function App() {
   }, [checkSession]);
 
   useEffect(() => {
-    if (sessionUser) void loadRecords();
+    if (sessionUser && sessionUser.role !== "Customer") void loadRecords();
   }, [loadRecords, sessionUser]);
 
   useEffect(() => {
@@ -217,6 +218,17 @@ function App() {
     setAuthBusy(true);
     try {
       const user = await api.login(values);
+      setAuthError("");
+      setSessionUser(user);
+      setAuthStatus("ready");
+    } finally { setAuthBusy(false); }
+  }
+
+  async function register(values) {
+    if (!api || authBusy) throw new Error("Connect to the workshop API before registering.");
+    setAuthBusy(true);
+    try {
+      const user = await api.registerCustomer(values);
       setAuthError("");
       setSessionUser(user);
       setAuthStatus("ready");
@@ -475,79 +487,96 @@ function App() {
 
   return (
     <>
-      {sessionUser && authStatus === "ready" ? <WorkshopShell user={sessionUser} onLogout={logout} signingOut={authBusy} activeTab={activeTab} counts={{ customers: customers.length, vehicles: vehicles.length, appointments: appointments.length, services: services.length, mechanics: mechanics.length }} status={status} mutating={mutating || authBusy} onNavigate={setActiveTab} onOpenSettings={openSettings}>
-      <main id="main-content" tabIndex={-1}>
-        {notice && <div className="notice-container no-print"><Notice notice={notice} onDismiss={() => setNotice(null)} /></div>}
-        <DashboardSection active={activeTab === "dashboard"} status={status} errorMessage={errorMessage} customers={customers} vehicles={vehicles} services={services} mechanics={mechanics} appointments={appointments} busy={busy} onRetry={reloadRecords} onOpenSettings={openSettings} onNavigate={setActiveTab} onOpenAppointments={openAppointments} />
-        <CustomersSection
-          active={activeTab === "customers"}
-          status={status}
-          errorMessage={errorMessage}
-          customers={customers}
-          busy={busy}
-          onOpenSettings={openSettings}
-          onRetry={reloadRecords}
-          onSave={saveCustomer}
-          onDelete={askToDelete}
-          onViewVehicles={showCustomerVehicles}
-        />
-        <VehiclesSection
-          active={activeTab === "vehicles"}
-          status={status}
-          errorMessage={errorMessage}
-          customers={customers}
-          vehicles={vehicles}
-          appointments={appointments}
-          ownerFilter={ownerFilter}
-          busy={busy}
-          onOwnerFilterChange={setOwnerFilter}
-          onOpenSettings={openSettings}
-          onRetry={reloadRecords}
-          onSave={saveVehicle}
-          onDelete={askToDelete}
-          onAddCustomer={goToCustomers}
-          onOpenReceipt={openReceipt}
-        />
-        <AppointmentsSection
-          active={activeTab === "appointments"}
-          connectionStatus={status}
-          errorMessage={errorMessage}
-          customers={customers}
-          vehicles={vehicles}
-          appointments={appointments}
-          services={services}
-          mechanics={mechanics}
-          preset={appointmentPreset}
-          onAssignMechanic={assignMechanic}
-          onTransitionStatus={transitionAppointmentStatus}
-          onRecordService={recordService}
-          onOpenReceipt={openReceipt}
-          onAddMechanic={() => { setActiveTab("mechanics"); window.requestAnimationFrame(() => document.getElementById("mechanics-nav")?.focus()); }}
-          busy={busy}
-          onOpenSettings={openSettings}
-          onRetry={reloadRecords}
-          onSave={saveAppointment}
-          onAddCustomer={goToCustomers}
-          onAddVehicle={goToVehicles}
-          onAddService={() => setActiveTab("services")}
-        />
-        <ServicesSection
-          active={activeTab === "services"}
-          status={status}
-          errorMessage={errorMessage}
-          services={services}
-          busy={busy}
-          onOpenSettings={openSettings}
-          onRetry={reloadRecords}
-          onSave={saveService}
-          onError={(message) => showNotice(message, "error")}
-        />
-        <MechanicsSection active={activeTab === "mechanics"} status={status} errorMessage={errorMessage} mechanics={mechanics} busy={busy} onOpenSettings={openSettings} onRetry={reloadRecords} onSave={saveMechanic} />
-        {sessionUser.role === "Admin" && <UsersSection key={sessionUser.id} active={activeTab === "users"} currentUser={sessionUser} api={api} onSessionExpired={clearSession} />}
-        {sessionUser.role === "Admin" && <AuditLogsSection key={`audit-${sessionUser.id}`} active={activeTab === "audit"} api={api} onSessionExpired={clearSession} onNotify={showNotice} />}
-        <AccountSection active={activeTab === "account"} user={sessionUser} busy={authBusy || mutating} onChangePassword={changePassword} />
-      </main>
-      </WorkshopShell> : <LoginScreen status={authStatus} errorMessage={authError} busy={authBusy} onLogin={login} onRetry={() => void checkSession()} onOpenSettings={openSettings} />}
+      {sessionUser && authStatus === "ready" ? (
+        sessionUser.role === "Customer" ? (
+          <CustomerPortal
+            api={api}
+            user={sessionUser}
+            onUserUpdated={setSessionUser}
+            onLogout={logout}
+            signingOut={authBusy}
+            onChangePassword={changePassword}
+            onOpenSettings={openSettings}
+            onSessionExpired={clearSession}
+          />
+        ) : (
+          <WorkshopShell user={sessionUser} onLogout={logout} signingOut={authBusy} activeTab={activeTab} counts={{ customers: customers.length, vehicles: vehicles.length, appointments: appointments.length, services: services.length, mechanics: mechanics.length }} status={status} mutating={mutating || authBusy} onNavigate={setActiveTab} onOpenSettings={openSettings}>
+            <main id="main-content" tabIndex={-1}>
+              {notice && <div className="notice-container no-print"><Notice notice={notice} onDismiss={() => setNotice(null)} /></div>}
+              <DashboardSection active={activeTab === "dashboard"} status={status} errorMessage={errorMessage} customers={customers} vehicles={vehicles} services={services} mechanics={mechanics} appointments={appointments} busy={busy} onRetry={reloadRecords} onOpenSettings={openSettings} onNavigate={setActiveTab} onOpenAppointments={openAppointments} />
+              <CustomersSection
+                active={activeTab === "customers"}
+                status={status}
+                errorMessage={errorMessage}
+                customers={customers}
+                busy={busy}
+                onOpenSettings={openSettings}
+                onRetry={reloadRecords}
+                onSave={saveCustomer}
+                onDelete={askToDelete}
+                onViewVehicles={showCustomerVehicles}
+              />
+              <VehiclesSection
+                active={activeTab === "vehicles"}
+                status={status}
+                errorMessage={errorMessage}
+                customers={customers}
+                vehicles={vehicles}
+                appointments={appointments}
+                ownerFilter={ownerFilter}
+                busy={busy}
+                onOwnerFilterChange={setOwnerFilter}
+                onOpenSettings={openSettings}
+                onRetry={reloadRecords}
+                onSave={saveVehicle}
+                onDelete={askToDelete}
+                onAddCustomer={goToCustomers}
+                onOpenReceipt={openReceipt}
+              />
+              <AppointmentsSection
+                active={activeTab === "appointments"}
+                connectionStatus={status}
+                errorMessage={errorMessage}
+                customers={customers}
+                vehicles={vehicles}
+                appointments={appointments}
+                services={services}
+                mechanics={mechanics}
+                preset={appointmentPreset}
+                onAssignMechanic={assignMechanic}
+                onTransitionStatus={transitionAppointmentStatus}
+                onRecordService={recordService}
+                onOpenReceipt={openReceipt}
+                onAddMechanic={() => { setActiveTab("mechanics"); window.requestAnimationFrame(() => document.getElementById("mechanics-nav")?.focus()); }}
+                busy={busy}
+                onOpenSettings={openSettings}
+                onRetry={reloadRecords}
+                onSave={saveAppointment}
+                onAddCustomer={goToCustomers}
+                onAddVehicle={goToVehicles}
+                onAddService={() => setActiveTab("services")}
+              />
+              <ServicesSection
+                active={activeTab === "services"}
+                status={status}
+                errorMessage={errorMessage}
+                services={services}
+                busy={busy}
+                onOpenSettings={openSettings}
+                onRetry={reloadRecords}
+                onSave={saveService}
+                onError={(message) => showNotice(message, "error")}
+              />
+              <MechanicsSection active={activeTab === "mechanics"} status={status} errorMessage={errorMessage} mechanics={mechanics} busy={busy} onOpenSettings={openSettings} onRetry={reloadRecords} onSave={saveMechanic} />
+              {sessionUser.role === "Admin" && <UsersSection key={sessionUser.id} active={activeTab === "users"} currentUser={sessionUser} api={api} onSessionExpired={clearSession} />}
+              {sessionUser.role === "Admin" && <AuditLogsSection key={`audit-${sessionUser.id}`} active={activeTab === "audit"} api={api} onSessionExpired={clearSession} onNotify={showNotice} />}
+              <AccountSection active={activeTab === "account"} user={sessionUser} busy={authBusy || mutating} onChangePassword={changePassword} />
+            </main>
+          </WorkshopShell>
+        )
+      ) : (
+        <LoginScreen status={authStatus} errorMessage={authError} busy={authBusy} onLogin={login} onRegister={register} onRetry={() => void checkSession()} onOpenSettings={openSettings} />
+      )}
 
       <SettingsDialog open={settingsOpen} initialValue={apiBaseUrl} busy={mutating || authBusy} onClose={closeSettings} onSave={saveSettings} />
       <DeleteDialog target={deleteTarget} error={deleteError} busy={mutating} onClose={closeDeleteDialog} onConfirm={confirmDelete} />

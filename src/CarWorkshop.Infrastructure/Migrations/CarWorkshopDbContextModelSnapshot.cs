@@ -380,6 +380,9 @@ namespace CarWorkshop.Infrastructure.Migrations
                     b.Property<DateTime>("CreatedAtUtc")
                         .HasColumnType("datetime(6)");
 
+                    b.Property<int?>("CustomerId")
+                        .HasColumnType("int");
+
                     b.Property<int>("FailedLoginCount")
                         .HasColumnType("int");
 
@@ -406,8 +409,8 @@ namespace CarWorkshop.Infrastructure.Migrations
 
                     b.Property<string>("Role")
                         .IsRequired()
-                        .HasMaxLength(10)
-                        .HasColumnType("varchar(10)");
+                        .HasMaxLength(20)
+                        .HasColumnType("varchar(20)");
 
                     b.Property<string>("Username")
                         .IsRequired()
@@ -415,6 +418,9 @@ namespace CarWorkshop.Infrastructure.Migrations
                         .HasColumnType("varchar(50)");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("CustomerId")
+                        .IsUnique();
 
                     b.HasIndex("NormalizedUsername")
                         .IsUnique();
@@ -528,6 +534,16 @@ namespace CarWorkshop.Infrastructure.Migrations
                         .IsRequired();
 
                     b.Navigation("WorkshopUser");
+                });
+
+            modelBuilder.Entity("CarWorkshop.Domain.Entities.WorkshopUser", b =>
+                {
+                    b.HasOne("CarWorkshop.Domain.Entities.Customer", "Customer")
+                        .WithOne()
+                        .HasForeignKey("CarWorkshop.Domain.Entities.WorkshopUser", "CustomerId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("Customer");
                 });
 
             modelBuilder.Entity("CarWorkshop.Domain.Entities.Appointment", b =>

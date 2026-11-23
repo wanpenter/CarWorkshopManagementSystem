@@ -1,3 +1,5 @@
+using CarWorkshop.Api.Authentication;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
 using CarWorkshop.Api.Models;
@@ -8,6 +10,7 @@ namespace CarWorkshop.Api.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
+    [Authorize(Policy = WorkshopAuthentication.StaffOrAdminPolicy)]
     public class CarsController : ControllerBase
 
     {

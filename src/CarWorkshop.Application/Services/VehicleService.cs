@@ -144,6 +144,35 @@ public sealed class VehicleService
         await _unitOfWork.SaveChangesAsync(cancellationToken);
     }
 
+    public async Task<VehicleDetails> UpdateForCustomerAsync(
+        int id,
+        int customerId,
+        VehicleCommand command,
+        CancellationToken cancellationToken = default)
+    {
+        var vehicle = await FindVehicleAsync(id, cancellationToken);
+        if (vehicle.CustomerId != customerId)
+        {
+            throw new ForbiddenException("You can only update your own vehicles.");
+        }
+
+        return await UpdateAsync(id, command with { CustomerId = customerId }, cancellationToken);
+    }
+
+    public async Task DeleteForCustomerAsync(
+        int id,
+        int customerId,
+        CancellationToken cancellationToken = default)
+    {
+        var vehicle = await FindVehicleAsync(id, cancellationToken);
+        if (vehicle.CustomerId != customerId)
+        {
+            throw new ForbiddenException("You can only delete your own vehicles.");
+        }
+
+        await DeleteAsync(id, cancellationToken);
+    }
+
     private static object VehicleSnapshot(Vehicle vehicle) => new
     {
         vehicle.CustomerId,

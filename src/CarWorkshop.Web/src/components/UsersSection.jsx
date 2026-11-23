@@ -41,6 +41,7 @@ export default function UsersSection({ active, currentUser, api, onSessionExpire
   const editing = selectedId !== null;
   const selectedUser = useMemo(() => users.find((user) => Number(user.id) === Number(selectedId)) ?? null, [selectedId, users]);
   const editingSelf = Boolean(selectedUser && Number(selectedUser.id) === Number(currentUser?.id));
+  const editingCustomer = Boolean(selectedUser && selectedUser.role === "Customer");
   const actionBusy = saving || resetting;
 
   const handleApiError = useCallback((error, fallback) => {
@@ -173,7 +174,8 @@ export default function UsersSection({ active, currentUser, api, onSessionExpire
       if (!form.confirmPassword) next.confirmPassword = "Confirm the temporary password.";
       else if (form.confirmPassword !== form.password) next.confirmPassword = "The passwords do not match.";
     }
-    if (!["Admin", "Staff"].includes(form.role)) next.role = "Choose a valid role.";
+    const allowedRoles = editingCustomer ? ["Customer"] : ["Admin", "Staff"];
+    if (!allowedRoles.includes(form.role)) next.role = "Choose a valid role.";
     return { next, username, fullName };
   }
 
@@ -305,7 +307,7 @@ export default function UsersSection({ active, currentUser, api, onSessionExpire
                       {visibleUsers.map((user) => (
                         <tr key={user.id} className={Number(user.id) === Number(selectedId) ? "bg-selected" : "transition-colors hover:bg-selected"}>
                           <TableCell><strong className="block">{user.fullName}</strong><span className="text-xs text-ink-soft">{user.username}</span></TableCell>
-                          <TableCell><span className={`status-text ${user.role === "Admin" ? "pill-rust" : "pill-teal"}`}>{user.role}</span></TableCell>
+                          <TableCell><span className={`status-text ${user.role === "Admin" ? "pill-rust" : user.role === "Customer" ? "pill-muted" : "pill-teal"}`}>{user.role}</span></TableCell>
                           <TableCell><span className={`status-text ${user.isActive === false ? "pill-muted" : "pill-success"}`}>{accountStatus(user)}</span></TableCell>
                           <TableCell className="whitespace-nowrap">{friendlyDate(user.createdAtUtc)}</TableCell>
                           <TableCell className="whitespace-nowrap"><button type="button" className="row-action" disabled={actionBusy} onClick={() => beginEdit(user)}>Edit</button></TableCell>
@@ -319,7 +321,7 @@ export default function UsersSection({ active, currentUser, api, onSessionExpire
                   {visibleUsers.map((user) => (
                     <article key={user.id} className={`record-card ${Number(user.id) === Number(selectedId) ? "border-rust bg-selected" : "border-paper-line bg-white"}`}>
                       <MobileDatum label="User"><strong>{user.fullName}</strong><br /><span className="text-ink-soft">{user.username}</span></MobileDatum>
-                      <MobileDatum label="Role"><span className={`status-text ${user.role === "Admin" ? "pill-rust" : "pill-teal"}`}>{user.role}</span></MobileDatum>
+                      <MobileDatum label="Role"><span className={`status-text ${user.role === "Admin" ? "pill-rust" : user.role === "Customer" ? "pill-muted" : "pill-teal"}`}>{user.role}</span></MobileDatum>
                       <MobileDatum label="Status"><span className={`status-text ${user.isActive === false ? "pill-muted" : "pill-success"}`}>{accountStatus(user)}</span></MobileDatum>
                       <MobileDatum label="Created">{friendlyDate(user.createdAtUtc)}</MobileDatum>
                       <button type="button" className="button button-secondary mt-3 w-full" disabled={actionBusy} onClick={() => beginEdit(user)}>Edit account</button>
@@ -373,12 +375,19 @@ export default function UsersSection({ active, currentUser, api, onSessionExpire
 
           <div className="auth-field">
             <label htmlFor="user-editor-role">Role</label>
-            <select id="user-editor-role" name="role" className="control-input" value={form.role} disabled={actionBusy || editingSelf} aria-invalid={errors.role ? "true" : undefined} aria-describedby={errors.role ? "user-editor-role-help user-editor-role-error" : "user-editor-role-help"} onChange={(event) => updateField("role", event.target.value)}>
-              <option value="Staff">Staff</option>
-              <option value="Admin">Admin</option>
+            <select id="user-editor-role" name="role" className="control-input" value={form.role} disabled={actionBusy || editingSelf || editingCustomer} aria-invalid={errors.role ? "true" : undefined} aria-describedby={errors.role ? "user-editor-role-help user-editor-role-error" : "user-editor-role-help"} onChange={(event) => updateField("role", event.target.value)}>
+              {editingCustomer ? (
+                <option value="Customer">Customer</option>
+              ) : (
+                <>
+                  <option value="Staff">Staff</option>
+                  <option value="Admin">Admin</option>
+                </>
+              )}
             </select>
             <p id="user-editor-role-help" className="auth-field-help">
               {editingSelf ? "Another administrator must change your role."
+                : editingCustomer ? "Customer portal accounts keep the Customer role. You can update their name, active status, or reset their password."
                 : form.role === "Admin" ? "Can manage workshop records and user accounts."
                 : "Can manage workshop records, including bookings and mechanic assignments."}
             </p>

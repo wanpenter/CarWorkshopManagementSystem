@@ -39,17 +39,40 @@ public sealed class AuthController(
             return UnauthorizedProblem();
         }
 
-        var claims = new[]
+        await SignInSessionAsync(result);
+        return Ok(WorkshopAuthService.ToAuthenticatedResponse(result.User));
+    }
+
+    [AllowAnonymous]
+    [EnableRateLimiting("Login")]
+    [HttpPost("register")]
+    public async Task<ActionResult<AuthenticatedUserResponse>> Register(
+        RegisterCustomerRequest request,
+        CancellationToken cancellationToken)
+    {
+        var result = await authService.RegisterCustomerAsync(request, cancellationToken);
+        await SignInSessionAsync(result);
+        return StatusCode(StatusCodes.Status201Created, WorkshopAuthService.ToAuthenticatedResponse(result.User));
+    }
+
+    private Task SignInSessionAsync(LoginResult result)
+    {
+        var claims = new List<Claim>
         {
-            new Claim(ClaimTypes.NameIdentifier, result.User.Id.ToString()),
-            new Claim(ClaimTypes.Name, result.User.Username),
-            new Claim(ClaimTypes.GivenName, result.User.FullName),
-            new Claim(ClaimTypes.Role, result.User.Role),
-            new Claim(WorkshopAuthentication.SessionIdClaim, result.Session.Id.ToString())
+            new(ClaimTypes.NameIdentifier, result.User.Id.ToString()),
+            new(ClaimTypes.Name, result.User.Username),
+            new(ClaimTypes.GivenName, result.User.FullName),
+            new(ClaimTypes.Role, result.User.Role),
+            new(WorkshopAuthentication.SessionIdClaim, result.Session.Id.ToString())
         };
+        if (result.User.CustomerId.HasValue)
+        {
+            claims.Add(new Claim(WorkshopAuthentication.CustomerIdClaim, result.User.CustomerId.Value.ToString()));
+        }
+
         var principal = new ClaimsPrincipal(
             new ClaimsIdentity(claims, WorkshopAuthentication.Scheme));
-        await HttpContext.SignInAsync(
+        return HttpContext.SignInAsync(
             WorkshopAuthentication.Scheme,
             principal,
             new AuthenticationProperties
@@ -59,8 +82,6 @@ public sealed class AuthController(
                 IssuedUtc = timeProvider.GetUtcNow(),
                 ExpiresUtc = new DateTimeOffset(result.Session.ExpiresAtUtc)
             });
-
-        return Ok(WorkshopAuthService.ToAuthenticatedResponse(result.User));
     }
 
     [HttpGet("me")]

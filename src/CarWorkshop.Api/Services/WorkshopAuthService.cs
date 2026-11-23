@@ -1,4 +1,5 @@
 using CarWorkshop.Api.Models;
+using CarWorkshop.Application.Contracts;
 using CarWorkshop.Application.Exceptions;
 using CarWorkshop.Application.Interfaces;
 using CarWorkshop.Application.Services;
@@ -88,6 +89,98 @@ public sealed class WorkshopAuthService(
         await db.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         return new LoginResult(user, session);
+    }
+
+    public async Task<LoginResult> RegisterCustomerAsync(
+        RegisterCustomerRequest request,
+        CancellationToken cancellationToken)
+    {
+        ValidatePassword(request.Password, nameof(request.Password));
+        var normalizedUsername = WorkshopUser.NormalizeUsername(request.Username);
+        var now = UtcNow();
+
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        if (await db.WorkshopUsers.AnyAsync(user => user.NormalizedUsername == normalizedUsername, cancellationToken))
+        {
+            throw new ConflictException("A user with that username already exists.");
+        }
+
+        var customer = Customer.Create(request.FullName, request.Phone, request.Address, now);
+        db.Customers.Add(customer);
+        await db.SaveChangesAsync(cancellationToken);
+
+        var user = WorkshopUser.CreateCustomer(
+            request.Username,
+            customer.FullName,
+            customer.Id,
+            "pending",
+            now);
+        user.ChangePasswordHash(passwordHasher.HashPassword(user, request.Password));
+        db.WorkshopUsers.Add(user);
+        try
+        {
+            await db.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException exception) when (IsUniqueConstraintViolation(exception))
+        {
+            throw new ConflictException("A user with that username already exists.");
+        }
+
+        var session = WorkshopSession.Create(user.Id, now, now.Add(SessionLifetime));
+        db.WorkshopSessions.Add(session);
+        await auditLogs.StageAsync(
+            "Customer.Registered",
+            "Customer",
+            customer.Id,
+            $"Customer {customer.FullName} registered self-service portal account ({user.Username}).",
+            newValues: new { customer.FullName, customer.Phone, customer.Address, username = user.Username, role = user.Role },
+            actorOverride: new CurrentActor(user.Id, user.Username, user.Role),
+            cancellationToken: cancellationToken);
+        await db.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return new LoginResult(user, session);
+    }
+
+    public async Task<CustomerSummary> UpdateCustomerProfileAsync(
+        int userId,
+        int customerId,
+        CustomerCommand command,
+        CancellationToken cancellationToken)
+    {
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        var customer = await db.Customers
+            .Include(item => item.Vehicles)
+            .SingleOrDefaultAsync(item => item.Id == customerId, cancellationToken)
+            ?? throw new EntityNotFoundException("Customer", customerId);
+        var user = await LockedUserAsync(userId, cancellationToken)
+            ?? throw new EntityNotFoundException("User", userId);
+        if (user.CustomerId != customerId)
+        {
+            throw new ForbiddenException("You can only update your own customer profile.");
+        }
+
+        var oldValues = new { customer.FullName, customer.Phone, customer.Address };
+        customer.Update(command.FullName, command.Phone, command.Address);
+        user.UpdateFullName(customer.FullName);
+
+        await auditLogs.StageAsync(
+            "Customer.Updated",
+            "Customer",
+            customer.Id,
+            $"Customer {customer.FullName} updated their portal profile.",
+            oldValues: oldValues,
+            newValues: new { customer.FullName, customer.Phone, customer.Address },
+            cancellationToken: cancellationToken);
+        await db.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+
+        return new CustomerSummary(
+            customer.Id,
+            customer.FullName,
+            customer.Phone,
+            customer.Address,
+            customer.CreatedAt,
+            customer.Vehicles.Count);
     }
 
     public async Task RevokeSessionAsync(string sessionId, CancellationToken cancellationToken)
@@ -284,7 +377,7 @@ public sealed class WorkshopAuthService(
 
     public static AuthenticatedUserResponse ToAuthenticatedResponse(WorkshopUser user)
     {
-        return new AuthenticatedUserResponse(user.Id, user.Username, user.FullName, user.Role);
+        return new AuthenticatedUserResponse(user.Id, user.Username, user.FullName, user.Role, user.CustomerId);
     }
 
     private async Task<WorkshopUser?> LockedUserAsync(int userId, CancellationToken cancellationToken)

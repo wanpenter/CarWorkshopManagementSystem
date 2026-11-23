@@ -31,8 +31,18 @@ internal sealed class WorkshopUserConfiguration : IEntityTypeConfiguration<Works
             .IsRequired();
 
         builder.Property(user => user.Role)
-            .HasMaxLength(10)
+            .HasMaxLength(20)
             .IsRequired();
+
+        builder.Property(user => user.CustomerId);
+
+        builder.HasIndex(user => user.CustomerId)
+            .IsUnique();
+
+        builder.HasOne(user => user.Customer)
+            .WithOne()
+            .HasForeignKey<WorkshopUser>(user => user.CustomerId)
+            .OnDelete(DeleteBehavior.Restrict);
 
         builder.HasIndex(user => new { user.Role, user.IsActive });
 

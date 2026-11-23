@@ -29,6 +29,92 @@ public sealed class AppointmentService(
     public async Task<AppointmentDetails> GetByIdAsync(int id, CancellationToken cancellationToken = default) =>
         ToDetails(await FindAppointmentAsync(id, cancellationToken));
 
+    public async Task<AppointmentDetails> GetByIdForCustomerAsync(
+        int id,
+        int customerId,
+        CancellationToken cancellationToken = default)
+    {
+        var appointment = await FindAppointmentAsync(id, cancellationToken);
+        if (appointment.CustomerId != customerId)
+            throw new ForbiddenException("You can only view your own appointments.");
+        return ToDetails(appointment);
+    }
+
+    public async Task<AppointmentDetails> CreateForCustomerAsync(
+        int customerId,
+        int vehicleId,
+        DateTime scheduledAtUtc,
+        IReadOnlyList<int> serviceIds,
+        string? notes,
+        CancellationToken cancellationToken = default)
+    {
+        var vehicle = await FindVehicleAsync(vehicleId, cancellationToken);
+        if (vehicle.CustomerId != customerId)
+            throw new ForbiddenException("You can only book appointments for your own vehicles.");
+
+        return await CreateAsync(
+            new AppointmentCommand(
+                customerId,
+                vehicleId,
+                scheduledAtUtc,
+                serviceIds,
+                notes,
+                AppointmentStatus.Requested),
+            cancellationToken);
+    }
+
+    public Task<AppointmentDetails> CancelForCustomerAsync(
+        int id,
+        int customerId,
+        string? reason,
+        CancellationToken cancellationToken = default) =>
+        appointments.WithSchedulingLockAsync(async () =>
+        {
+            var appointment = await FindAppointmentAsync(id, cancellationToken);
+            if (appointment.CustomerId != customerId)
+                throw new ForbiddenException("You can only cancel your own appointments.");
+            if (appointment.Status is not (AppointmentStatus.Requested or AppointmentStatus.Confirmed or AppointmentStatus.Scheduled))
+                throw new ConflictException(
+                    "Only pending or confirmed appointments can be cancelled online. Contact the workshop for jobs already in progress.");
+
+            var oldStatus = appointment.Status;
+            var oldValues = AppointmentSnapshot(appointment);
+            try
+            {
+                appointment.TransitionStatus(AppointmentStatus.Cancelled, reason, timeProvider.GetUtcNow().UtcDateTime);
+            }
+            catch (InvalidOperationException exception)
+            {
+                throw new ConflictException(exception.Message);
+            }
+
+            var reasonSuffix = string.IsNullOrWhiteSpace(appointment.StatusReason)
+                ? string.Empty
+                : $" Reason: {appointment.StatusReason}";
+            await auditLogs.StageAsync(
+                "Appointment.StatusChanged",
+                "Appointment",
+                appointment.Id,
+                $"Customer cancelled appointment #{appointment.Id} (was {oldStatus}).{reasonSuffix}",
+                oldValues: oldValues,
+                newValues: AppointmentSnapshot(appointment),
+                cancellationToken: cancellationToken);
+            await unitOfWork.SaveChangesAsync(cancellationToken);
+            return ToDetails(appointment);
+        }, cancellationToken);
+
+    public async Task LogReceiptPrintedForCustomerAsync(
+        int id,
+        int customerId,
+        CancellationToken cancellationToken = default)
+    {
+        var appointment = await FindAppointmentAsync(id, cancellationToken);
+        if (appointment.CustomerId != customerId)
+            throw new ForbiddenException("You can only print receipts for your own appointments.");
+
+        await LogReceiptPrintedAsync(id, cancellationToken);
+    }
+
     public async Task<AppointmentDetails> CreateAsync(AppointmentCommand command,
         CancellationToken cancellationToken = default)
     {

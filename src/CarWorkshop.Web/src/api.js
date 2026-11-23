@@ -145,7 +145,7 @@ export function validateMechanic(values) {
   return { valid: Object.keys(errors).length === 0, errors, values: { fullName, phone, isActive: values?.isActive !== false } };
 }
 
-export function validateVehicle(values, { currentYear = new Date().getUTCFullYear() } = {}) {
+export function validateVehicle(values, { currentYear = new Date().getUTCFullYear(), requireCustomer = true } = {}) {
   const customerId = Number(values?.customerId);
   const registrationNumber = canonicalizeRegistration(values?.registrationNumber);
   const make = String(values?.make ?? "").trim();
@@ -156,7 +156,7 @@ export function validateVehicle(values, { currentYear = new Date().getUTCFullYea
   const mileage = mileageText === "" ? 0 : Number(mileageText);
   const errors = {};
 
-  if (!Number.isInteger(customerId) || customerId <= 0) errors.customerId = "Choose a vehicle owner.";
+  if (requireCustomer && (!Number.isInteger(customerId) || customerId <= 0)) errors.customerId = "Choose a vehicle owner.";
   if (!registrationNumber) errors.registrationNumber = "Enter the registration number.";
   else if (!/^[A-Z0-9]+$/.test(registrationNumber)) errors.registrationNumber = "Use letters and numbers only.";
   else if (registrationNumber.length > 20) errors.registrationNumber = "Registration number must be 20 characters or fewer.";
@@ -241,7 +241,7 @@ export function toLocalDateTimeInput(utcValue) {
   return `${parsed.getFullYear()}-${pad(parsed.getMonth() + 1)}-${pad(parsed.getDate())}T${pad(parsed.getHours())}:${pad(parsed.getMinutes())}`;
 }
 
-export function validateAppointment(values, { now = new Date(), includeStatus = false } = {}) {
+export function validateAppointment(values, { now = new Date(), includeStatus = false, requireCustomer = true } = {}) {
   const customerId = Number(values?.customerId);
   const vehicleId = Number(values?.vehicleId);
   const scheduledAtUtc = values?.scheduledAtLocal !== undefined
@@ -253,8 +253,8 @@ export function validateAppointment(values, { now = new Date(), includeStatus = 
   const status = String(values?.status ?? "Requested");
   const errors = {};
 
-  if (!Number.isInteger(customerId) || customerId <= 0) errors.customerId = "Choose a customer.";
-  if (!Number.isInteger(vehicleId) || vehicleId <= 0) errors.vehicleId = "Choose one of the customer's vehicles.";
+  if (requireCustomer && (!Number.isInteger(customerId) || customerId <= 0)) errors.customerId = "Choose a customer.";
+  if (!Number.isInteger(vehicleId) || vehicleId <= 0) errors.vehicleId = requireCustomer ? "Choose one of the customer's vehicles." : "Choose one of your vehicles.";
   if (!scheduledAtUtc) errors.scheduledAtUtc = "Choose a valid appointment date and time.";
   if (serviceIds.length === 0 || serviceIds.some((id) => !Number.isInteger(id) || id <= 0) || new Set(serviceIds).size !== serviceIds.length) {
     errors.serviceIds = "Choose at least one available service.";
@@ -386,7 +386,7 @@ export function createApiClient(
       });
       const responseBody = await readJsonResponse(response);
       if (!response.ok) {
-        if (response.status === 401 && !["/api/auth/login", "/api/auth/me"].includes(path)) onUnauthorized?.();
+        if (response.status === 401 && !["/api/auth/login", "/api/auth/register", "/api/auth/me"].includes(path)) onUnauthorized?.();
         throw new ApiError(problemMessage(responseBody, response.status), {
           status: response.status,
           problem: responseBody
@@ -416,8 +416,20 @@ export function createApiClient(
     baseUrl: requestBaseUrl,
     getCurrentUser: ({ signal } = {}) => request("/api/auth/me", { signal }),
     login: (values) => request("/api/auth/login", { method: "POST", body: values }),
+    registerCustomer: (values) => request("/api/auth/register", { method: "POST", body: values }),
     logout: () => request("/api/auth/logout", { method: "POST" }),
     changePassword: (values) => request("/api/auth/change-password", { method: "POST", body: values }),
+    getPortalProfile: ({ signal } = {}) => request("/api/portal/profile", { signal }),
+    updatePortalProfile: (profile, { signal } = {}) => request("/api/portal/profile", { method: "PUT", body: profile, signal }),
+    getPortalServices: ({ signal } = {}) => request("/api/portal/services", { signal }),
+    getPortalVehicles: ({ signal } = {}) => request("/api/portal/vehicles", { signal }),
+    addPortalVehicle: (vehicle, { signal } = {}) => request("/api/portal/vehicles", { method: "POST", body: vehicle, signal }),
+    updatePortalVehicle: (id, vehicle, { signal } = {}) => request(`/api/portal/vehicles/${id}`, { method: "PUT", body: vehicle, signal }),
+    deletePortalVehicle: (id, { signal } = {}) => request(`/api/portal/vehicles/${id}`, { method: "DELETE", signal }),
+    getPortalAppointments: ({ signal } = {}) => request("/api/portal/appointments", { signal }),
+    addPortalAppointment: (appointment, { signal } = {}) => request("/api/portal/appointments", { method: "POST", body: appointment, signal }),
+    cancelPortalAppointment: (id, reason, { signal } = {}) => request(`/api/portal/appointments/${id}/cancel`, { method: "POST", body: { reason: reason || null }, signal }),
+    logPortalReceiptPrinted: (id, { signal } = {}) => request(`/api/portal/appointments/${id}/receipt-printed`, { method: "POST", signal }),
     getUsers: ({ signal } = {}) => request("/api/users", { signal }),
     addUser: (values) => request("/api/users", { method: "POST", body: values }),
     updateUser: (id, values) => request(`/api/users/${id}`, { method: "PUT", body: values }),

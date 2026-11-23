@@ -59,7 +59,9 @@ builder.Services.AddAuthorizationBuilder()
     .SetFallbackPolicy(new AuthorizationPolicyBuilder()
         .RequireAuthenticatedUser()
         .Build())
-    .AddPolicy(WorkshopAuthentication.AdminPolicy, policy => policy.RequireRole(WorkshopUser.AdminRole));
+    .AddPolicy(WorkshopAuthentication.AdminPolicy, policy => policy.RequireRole(WorkshopUser.AdminRole))
+    .AddPolicy(WorkshopAuthentication.StaffOrAdminPolicy, policy => policy.RequireRole(WorkshopUser.AdminRole, WorkshopUser.StaffRole))
+    .AddPolicy(WorkshopAuthentication.CustomerPolicy, policy => policy.RequireRole(WorkshopUser.CustomerRole));
 builder.Services.AddRateLimiter(options =>
 {
     options.AddPolicy("Login", context => RateLimitPartition.GetFixedWindowLimiter(

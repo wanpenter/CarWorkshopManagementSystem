@@ -24,6 +24,10 @@ public sealed class ApiExceptionMiddleware
         {
             await WriteProblemAsync(context, StatusCodes.Status404NotFound, "Not found", exception.Message);
         }
+        catch (ForbiddenException exception)
+        {
+            await WriteProblemAsync(context, StatusCodes.Status403Forbidden, "Forbidden", exception.Message);
+        }
         catch (ConflictException exception)
         {
             await WriteProblemAsync(context, StatusCodes.Status409Conflict, "Conflict", exception.Message);

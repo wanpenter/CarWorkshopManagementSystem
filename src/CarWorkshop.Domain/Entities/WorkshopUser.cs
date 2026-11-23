@@ -6,6 +6,7 @@ public sealed partial class WorkshopUser
 {
     public const string AdminRole = "Admin";
     public const string StaffRole = "Staff";
+    public const string CustomerRole = "Customer";
 
     private readonly List<WorkshopSession> _sessions = [];
 
@@ -18,12 +19,26 @@ public sealed partial class WorkshopUser
         string fullName,
         string role,
         string passwordHash,
-        DateTime createdAtUtc)
+        DateTime createdAtUtc,
+        int? customerId = null)
     {
         Username = ValidateUsername(username);
         NormalizedUsername = NormalizeUsername(Username);
         FullName = ValidateFullName(fullName);
         Role = ValidateRole(role);
+        if (Role == CustomerRole)
+        {
+            if (customerId is not > 0)
+            {
+                throw new ArgumentException("A customer account must be linked to an existing customer.", nameof(customerId));
+            }
+        }
+        else if (customerId.HasValue)
+        {
+            throw new ArgumentException("Only Customer accounts can be linked to a customer record.", nameof(customerId));
+        }
+
+        CustomerId = customerId;
         PasswordHash = Required(passwordHash, nameof(passwordHash));
         IsActive = true;
         CreatedAtUtc = EnsureUtc(createdAtUtc, nameof(createdAtUtc));
@@ -40,6 +55,10 @@ public sealed partial class WorkshopUser
     public string PasswordHash { get; private set; } = string.Empty;
 
     public string Role { get; private set; } = StaffRole;
+
+    public int? CustomerId { get; private set; }
+
+    public Customer? Customer { get; private set; }
 
     public bool IsActive { get; private set; }
 
@@ -58,7 +77,22 @@ public sealed partial class WorkshopUser
         string passwordHash,
         DateTime createdAtUtc)
     {
+        if (Required(role, nameof(role)) is not AdminRole and not StaffRole)
+        {
+            throw new ArgumentException("Role must be Admin or Staff.", nameof(role));
+        }
+
         return new WorkshopUser(username, fullName, role, passwordHash, createdAtUtc);
+    }
+
+    public static WorkshopUser CreateCustomer(
+        string username,
+        string fullName,
+        int customerId,
+        string passwordHash,
+        DateTime createdAtUtc)
+    {
+        return new WorkshopUser(username, fullName, CustomerRole, passwordHash, createdAtUtc, customerId);
     }
 
     public static string NormalizeUsername(string username)
@@ -66,10 +100,26 @@ public sealed partial class WorkshopUser
         return ValidateUsername(username).ToUpperInvariant();
     }
 
-    public void UpdateAccess(string fullName, string role, bool isActive)
+    public void UpdateFullName(string fullName)
     {
         FullName = ValidateFullName(fullName);
-        Role = ValidateRole(role);
+    }
+
+    public void UpdateAccess(string fullName, string role, bool isActive)
+    {
+        var validatedRole = ValidateRole(role);
+        if (CustomerId.HasValue && validatedRole != CustomerRole)
+        {
+            throw new ArgumentException("Customer portal accounts must keep the Customer role.", nameof(role));
+        }
+
+        if (!CustomerId.HasValue && validatedRole == CustomerRole)
+        {
+            throw new ArgumentException("Staff and administrator accounts cannot be changed to Customer.", nameof(role));
+        }
+
+        FullName = ValidateFullName(fullName);
+        Role = validatedRole;
         IsActive = isActive;
     }
 
@@ -129,9 +179,9 @@ public sealed partial class WorkshopUser
     private static string ValidateRole(string role)
     {
         var value = Required(role, nameof(role));
-        if (value is not AdminRole and not StaffRole)
+        if (value is not AdminRole and not StaffRole and not CustomerRole)
         {
-            throw new ArgumentException("Role must be Admin or Staff.", nameof(role));
+            throw new ArgumentException("Role must be Admin, Staff, or Customer.", nameof(role));
         }
 
         return value;

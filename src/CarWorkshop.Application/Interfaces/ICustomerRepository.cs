@@ -12,6 +12,8 @@ public interface ICustomerRepository
 
     Task<bool> HasAppointmentsAsync(int id, CancellationToken cancellationToken = default);
 
+    Task<bool> HasPortalAccountAsync(int id, CancellationToken cancellationToken = default);
+
     Task AddAsync(Customer customer, CancellationToken cancellationToken = default);
 
     void Remove(Customer customer);

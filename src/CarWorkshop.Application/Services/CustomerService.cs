@@ -96,6 +96,12 @@ public sealed class CustomerService
                 "This customer cannot be deleted while appointments are still linked to them.");
         }
 
+        if (await _customers.HasPortalAccountAsync(id, cancellationToken))
+        {
+            throw new ConflictException(
+                "This customer cannot be deleted while a customer portal login is linked to them.");
+        }
+
         var oldValues = CustomerSnapshot(customer);
         _customers.Remove(customer);
         await _auditLogs.StageAsync(

@@ -53,6 +53,13 @@ public sealed class CustomerRepository : ICustomerRepository
             cancellationToken);
     }
 
+    public Task<bool> HasPortalAccountAsync(int id, CancellationToken cancellationToken = default)
+    {
+        return _context.WorkshopUsers.AnyAsync(
+            user => user.CustomerId == id,
+            cancellationToken);
+    }
+
     public void Remove(Customer customer)
     {
         _context.Customers.Remove(customer);

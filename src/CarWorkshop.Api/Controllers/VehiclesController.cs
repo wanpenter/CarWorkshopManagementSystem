@@ -1,12 +1,15 @@
+using CarWorkshop.Api.Authentication;
 using CarWorkshop.Api.Requests;
 using CarWorkshop.Application.Contracts;
 using CarWorkshop.Application.Services;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace CarWorkshop.Api.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
+[Authorize(Policy = WorkshopAuthentication.StaffOrAdminPolicy)]
 public sealed class VehiclesController : ControllerBase
 {
     private readonly VehicleService _vehicles;
