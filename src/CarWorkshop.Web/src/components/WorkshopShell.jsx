@@ -8,7 +8,11 @@ const workshopSections = [
 ];
 
 export default function WorkshopShell({ user, onLogout, signingOut = false, activeTab, counts, status, mutating, onNavigate, onOpenSettings, children }) {
-  const sections = [...workshopSections, ...(user?.role === "Admin" ? [["users", "User accounts"]] : []), ["account", "My account"]];
+  const sections = [
+    ...workshopSections,
+    ...(user?.role === "Admin" ? [["users", "User accounts"], ["audit", "Audit log"]] : []),
+    ["account", "My account"]
+  ];
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef(null);
   useEffect(() => {

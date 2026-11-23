@@ -18,6 +18,7 @@ import DashboardSection from "./components/DashboardSection.jsx";
 import LoginScreen from "./components/LoginScreen.jsx";
 import AccountSection from "./components/AccountSection.jsx";
 import UsersSection from "./components/UsersSection.jsx";
+import AuditLogsSection from "./components/AuditLogsSection.jsx";
 import "./auth.css";
 
 function App() {
@@ -478,6 +479,7 @@ function App() {
         />
         <MechanicsSection active={activeTab === "mechanics"} status={status} errorMessage={errorMessage} mechanics={mechanics} busy={busy} onOpenSettings={openSettings} onRetry={reloadRecords} onSave={saveMechanic} />
         {sessionUser.role === "Admin" && <UsersSection key={sessionUser.id} active={activeTab === "users"} currentUser={sessionUser} api={api} onSessionExpired={clearSession} />}
+        {sessionUser.role === "Admin" && <AuditLogsSection key={`audit-${sessionUser.id}`} active={activeTab === "audit"} api={api} onSessionExpired={clearSession} onNotify={showNotice} />}
         <AccountSection active={activeTab === "account"} user={sessionUser} busy={authBusy || mutating} onChangePassword={changePassword} />
       </main>
       </WorkshopShell> : <LoginScreen status={authStatus} errorMessage={authError} busy={authBusy} onLogin={login} onRetry={() => void checkSession()} onOpenSettings={openSettings} />}

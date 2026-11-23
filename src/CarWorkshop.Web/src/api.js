@@ -422,6 +422,16 @@ export function createApiClient(
     addUser: (values) => request("/api/users", { method: "POST", body: values }),
     updateUser: (id, values) => request(`/api/users/${id}`, { method: "PUT", body: values }),
     resetUserPassword: (id, newPassword) => request(`/api/users/${id}/reset-password`, { method: "POST", body: { newPassword } }),
+    getAuditLogs: ({ entityType, action, search, page = 1, pageSize = 25, signal } = {}) => {
+      const params = new URLSearchParams();
+      if (entityType) params.set("entityType", entityType);
+      if (action) params.set("action", action);
+      if (search) params.set("search", search);
+      if (page) params.set("page", String(page));
+      if (pageSize) params.set("pageSize", String(pageSize));
+      const query = params.toString();
+      return request(`/api/audit-logs${query ? `?${query}` : ""}`, { signal });
+    },
     getCustomers: ({ signal } = {}) => request("/api/customers", { signal }),
     getCustomer: (id, { signal } = {}) => request(`/api/customers/${id}`, { signal }),
     addCustomer: (customer, { signal } = {}) => request("/api/customers", { method: "POST", body: customer, signal }),

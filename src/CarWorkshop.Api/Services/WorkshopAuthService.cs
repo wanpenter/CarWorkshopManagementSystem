@@ -1,5 +1,7 @@
 using CarWorkshop.Api.Models;
 using CarWorkshop.Application.Exceptions;
+using CarWorkshop.Application.Interfaces;
+using CarWorkshop.Application.Services;
 using CarWorkshop.Domain.Entities;
 using CarWorkshop.Infrastructure.Data;
 using Microsoft.AspNetCore.Identity;
@@ -10,7 +12,8 @@ namespace CarWorkshop.Api.Services;
 public sealed class WorkshopAuthService(
     CarWorkshopDbContext db,
     IPasswordHasher<WorkshopUser> passwordHasher,
-    TimeProvider timeProvider)
+    TimeProvider timeProvider,
+    AuditLogService auditLogs)
 {
     private static readonly TimeSpan SessionLifetime = TimeSpan.FromHours(8);
     private static readonly WorkshopUser DummyUser = WorkshopUser.Create(
@@ -58,6 +61,17 @@ public sealed class WorkshopAuthService(
         if (verification == PasswordVerificationResult.Failed)
         {
             user.RegisterFailedLogin(now);
+            var lockedOut = user.IsLockedOut(now);
+            await auditLogs.StageAsync(
+                lockedOut ? "User.LockedOut" : "User.LoginFailed",
+                "User",
+                user.Id,
+                lockedOut
+                    ? $"Account {user.Username} was locked after repeated failed sign-in attempts."
+                    : $"Failed sign-in attempt for {user.Username}.",
+                newValues: new { failedLoginCount = user.FailedLoginCount, lockoutEndUtc = user.LockoutEndUtc },
+                actorOverride: new CurrentActor(user.Id, user.Username, user.Role),
+                cancellationToken: cancellationToken);
             await db.SaveChangesAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
             return null;
@@ -112,6 +126,13 @@ public sealed class WorkshopAuthService(
 
         user.ChangePasswordHash(passwordHasher.HashPassword(user, newPassword));
         await RevokeAllSessionsAsync(user.Id, cancellationToken);
+        await auditLogs.StageAsync(
+            "User.PasswordChanged",
+            "User",
+            user.Id,
+            $"User {user.Username} changed their own password and revoked active sessions.",
+            actorOverride: new CurrentActor(user.Id, user.Username, user.Role),
+            cancellationToken: cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
     }
@@ -155,6 +176,14 @@ public sealed class WorkshopAuthService(
             throw new ConflictException("A user with that username already exists.");
         }
 
+        await auditLogs.RecordAsync(
+            "User.Created",
+            "User",
+            user.Id,
+            $"Created {user.Role} account {user.Username} ({user.FullName}).",
+            newValues: new { user.Username, user.FullName, user.Role, user.IsActive },
+            cancellationToken: cancellationToken);
+
         return ToUserResponse(user);
     }
 
@@ -185,6 +214,7 @@ public sealed class WorkshopAuthService(
             throw new ConflictException("The last active administrator cannot be demoted or deactivated.");
         }
 
+        var oldValues = new { target.FullName, target.Role, target.IsActive };
         var accessChanged = target.Role != request.Role || target.IsActive != request.IsActive;
         target.UpdateAccess(request.FullName, request.Role, request.IsActive);
         if (accessChanged)
@@ -192,6 +222,14 @@ public sealed class WorkshopAuthService(
             await RevokeAllSessionsAsync(target.Id, cancellationToken);
         }
 
+        await auditLogs.StageAsync(
+            "User.Updated",
+            "User",
+            target.Id,
+            $"Updated account {target.Username} ({target.Role}, {(target.IsActive ? "Active" : "Inactive")}).",
+            oldValues: oldValues,
+            newValues: new { target.FullName, target.Role, target.IsActive },
+            cancellationToken: cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         return ToUserResponse(target);
@@ -208,6 +246,12 @@ public sealed class WorkshopAuthService(
             ?? throw new EntityNotFoundException("User", userId);
         user.ChangePasswordHash(passwordHasher.HashPassword(user, newPassword));
         await RevokeAllSessionsAsync(user.Id, cancellationToken);
+        await auditLogs.StageAsync(
+            "User.PasswordReset",
+            "User",
+            user.Id,
+            $"Reset password for {user.Username} and revoked active sessions.",
+            cancellationToken: cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
     }

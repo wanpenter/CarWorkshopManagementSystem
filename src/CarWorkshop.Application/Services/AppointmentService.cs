@@ -12,7 +12,8 @@ public sealed class AppointmentService(
     IServiceRepository services,
     IMechanicRepository mechanics,
     IUnitOfWork unitOfWork,
-    TimeProvider timeProvider)
+    TimeProvider timeProvider,
+    AuditLogService auditLogs)
 {
     private static readonly TimeSpan MalaysiaOffset = TimeSpan.FromHours(8);
 
@@ -46,6 +47,13 @@ public sealed class AppointmentService(
             await ValidateCapacityAsync(appointment, null, cancellationToken);
             await appointments.AddAsync(appointment, cancellationToken);
             await unitOfWork.SaveChangesAsync(cancellationToken);
+            await auditLogs.RecordAsync(
+                "Appointment.Created",
+                "Appointment",
+                appointment.Id,
+                $"Booked appointment #{appointment.Id} for {customer.FullName} ({vehicle.RegistrationNumber}).",
+                newValues: AppointmentSnapshot(appointment),
+                cancellationToken: cancellationToken);
             return ToDetails(appointment, customer, vehicle);
         }, cancellationToken);
     }
@@ -68,6 +76,8 @@ public sealed class AppointmentService(
         var selected = await FindServicesAsync(command.ServiceIds,
             appointment.Services.Select(item => item.ServiceId).ToArray(), cancellationToken);
         var day = DateOnly.FromDateTime(command.ScheduledAtUtc.Add(MalaysiaOffset));
+        var oldStatus = appointment.Status;
+        var oldValues = AppointmentSnapshot(appointment);
         return await appointments.WithDayLockAsync(day, async () =>
         {
             try
@@ -86,6 +96,17 @@ public sealed class AppointmentService(
                 await ValidateCapacityAsync(appointment, id, cancellationToken);
                 await ValidateMechanicScheduleAsync(appointment, cancellationToken);
             }
+            var statusChanged = oldStatus != appointment.Status;
+            await auditLogs.StageAsync(
+                statusChanged ? "Appointment.StatusChanged" : "Appointment.Updated",
+                "Appointment",
+                appointment.Id,
+                statusChanged
+                    ? $"Changed appointment #{appointment.Id} status from {oldStatus} to {appointment.Status}."
+                    : $"Updated appointment #{appointment.Id} for {customer.FullName} ({vehicle.RegistrationNumber}).",
+                oldValues: oldValues,
+                newValues: AppointmentSnapshot(appointment),
+                cancellationToken: cancellationToken);
             await unitOfWork.SaveChangesAsync(cancellationToken);
             return ToDetails(appointment, customer, vehicle);
         }, cancellationToken);
@@ -106,6 +127,7 @@ public sealed class AppointmentService(
             if (!appointment.EstimatedEndUtc.HasValue)
                 throw new ConflictException("This appointment needs an estimated end time before assignment.");
 
+            var oldMechanic = new { mechanicId = appointment.MechanicId, mechanicName = appointment.Mechanic?.FullName };
             try { appointment.AssignMechanic(mechanic); }
             catch (InvalidOperationException exception)
             {
@@ -113,6 +135,14 @@ public sealed class AppointmentService(
             }
 
             await ValidateMechanicScheduleAsync(appointment, cancellationToken);
+            await auditLogs.StageAsync(
+                "Appointment.MechanicAssigned",
+                "Appointment",
+                appointment.Id,
+                $"Assigned mechanic {mechanic.FullName} to appointment #{appointment.Id}.",
+                oldValues: oldMechanic,
+                newValues: new { mechanicId = mechanic.Id, mechanicName = mechanic.FullName },
+                cancellationToken: cancellationToken);
             await unitOfWork.SaveChangesAsync(cancellationToken);
             return ToDetails(appointment);
         }, cancellationToken);
@@ -134,6 +164,13 @@ public sealed class AppointmentService(
                 throw new ConflictException(exception.Message);
             }
 
+            await auditLogs.StageAsync(
+                "Appointment.ServiceRecorded",
+                "Appointment",
+                appointment.Id,
+                $"Recorded service for appointment #{appointment.Id} at {mileage:N0} km.",
+                newValues: new { mileage, workPerformed = summary },
+                cancellationToken: cancellationToken);
             await unitOfWork.SaveChangesAsync(cancellationToken);
             return ToDetails(appointment);
         }, cancellationToken);
@@ -244,6 +281,18 @@ public sealed class AppointmentService(
         if (vehicle.CustomerId != customerId)
             throw new ArgumentException("Vehicle does not belong to the selected customer.", "vehicleId");
     }
+
+    private static object AppointmentSnapshot(Appointment appointment) => new
+    {
+        appointment.CustomerId,
+        appointment.VehicleId,
+        appointment.ScheduledAtUtc,
+        appointment.EstimatedEndUtc,
+        status = appointment.Status.ToString(),
+        appointment.MechanicId,
+        services = appointment.Services.Select(item => item.Name).ToArray(),
+        appointment.Notes
+    };
 
     private static AppointmentDetails ToDetails(Appointment appointment) =>
         ToDetails(appointment, appointment.Customer, appointment.Vehicle);

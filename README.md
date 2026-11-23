@@ -112,7 +112,13 @@ mileage and tick the services performed. Choose additional services from the
 catalogue or describe other work in the optional notes. Both Staff and Admin can save one
 record per completed appointment. In **Vehicles**, select **History** on a vehicle
 row to view its **Service history**. Earlier completed appointments can receive records too. Apply
-the `AddServiceRecords` migration before starting this version of the API.
+the `AddServiceRecords` and `AddAuditLogs` migrations before starting this version of the API.
+
+An append-only **Audit log** records workshop changes (appointments, status transitions,
+mechanic assignments, service records, customers, vehicles, services, mechanics, user
+management, password resets/changes, and failed sign-in attempts) with before/after value
+snapshots and no password leakage. Admins can inspect, search, filter, and page through
+entries via `GET /api/audit-logs` or the **Audit log** tab.
 
 ## Verify
 

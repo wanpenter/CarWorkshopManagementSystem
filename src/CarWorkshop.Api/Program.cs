@@ -84,12 +84,15 @@ builder.Services.AddRateLimiter(options =>
     };
 });
 
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddScoped<ICurrentUserContext, HttpCurrentUserContext>();
 builder.Services.AddScoped<CarService>();
 builder.Services.AddScoped<CustomerService>();
 builder.Services.AddScoped<VehicleService>();
 builder.Services.AddScoped<CarWorkshop.Application.Services.AppointmentService>();
 builder.Services.AddScoped<ServiceCatalogue>();
 builder.Services.AddScoped<MechanicService>();
+builder.Services.AddScoped<AuditLogService>();
 builder.Services.AddScoped<WorkshopAuthService>();
 builder.Services.AddScoped<WorkshopCookieEvents>();
 builder.Services.AddScoped<IPasswordHasher<WorkshopUser>, PasswordHasher<WorkshopUser>>();
@@ -98,6 +101,7 @@ builder.Services.AddScoped<IVehicleRepository, VehicleRepository>();
 builder.Services.AddScoped<IAppointmentRepository, AppointmentRepository>();
 builder.Services.AddScoped<IServiceRepository, ServiceRepository>();
 builder.Services.AddScoped<IMechanicRepository, MechanicRepository>();
+builder.Services.AddScoped<IAuditLogRepository, AuditLogRepository>();
 builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.Configure<ApiBehaviorOptions>(options =>

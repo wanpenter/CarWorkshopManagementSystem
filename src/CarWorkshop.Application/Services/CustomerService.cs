@@ -10,15 +10,18 @@ public sealed class CustomerService
     private readonly ICustomerRepository _customers;
     private readonly IUnitOfWork _unitOfWork;
     private readonly TimeProvider _timeProvider;
+    private readonly AuditLogService _auditLogs;
 
     public CustomerService(
         ICustomerRepository customers,
         IUnitOfWork unitOfWork,
-        TimeProvider timeProvider)
+        TimeProvider timeProvider,
+        AuditLogService auditLogs)
     {
         _customers = customers;
         _unitOfWork = unitOfWork;
         _timeProvider = timeProvider;
+        _auditLogs = auditLogs;
     }
 
     public async Task<IReadOnlyList<CustomerSummary>> GetAllAsync(
@@ -48,6 +51,13 @@ public sealed class CustomerService
 
         await _customers.AddAsync(customer, cancellationToken);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
+        await _auditLogs.RecordAsync(
+            "Customer.Created",
+            "Customer",
+            customer.Id,
+            $"Created customer {customer.FullName}.",
+            newValues: CustomerSnapshot(customer),
+            cancellationToken: cancellationToken);
         return ToSummary(customer);
     }
 
@@ -57,7 +67,16 @@ public sealed class CustomerService
         CancellationToken cancellationToken = default)
     {
         var customer = await FindRequiredAsync(id, cancellationToken);
+        var oldValues = CustomerSnapshot(customer);
         customer.Update(command.FullName, command.Phone, command.Address);
+        await _auditLogs.StageAsync(
+            "Customer.Updated",
+            "Customer",
+            customer.Id,
+            $"Updated customer {customer.FullName}.",
+            oldValues: oldValues,
+            newValues: CustomerSnapshot(customer),
+            cancellationToken: cancellationToken);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
         return ToSummary(customer);
     }
@@ -77,9 +96,24 @@ public sealed class CustomerService
                 "This customer cannot be deleted while appointments are still linked to them.");
         }
 
+        var oldValues = CustomerSnapshot(customer);
         _customers.Remove(customer);
+        await _auditLogs.StageAsync(
+            "Customer.Deleted",
+            "Customer",
+            customer.Id,
+            $"Deleted customer {customer.FullName}.",
+            oldValues: oldValues,
+            cancellationToken: cancellationToken);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
     }
+
+    private static object CustomerSnapshot(Customer customer) => new
+    {
+        customer.FullName,
+        customer.Phone,
+        customer.Address
+    };
 
     private async Task<Customer> FindRequiredAsync(
         int id,

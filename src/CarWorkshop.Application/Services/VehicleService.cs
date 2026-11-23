@@ -11,17 +11,20 @@ public sealed class VehicleService
     private readonly ICustomerRepository _customers;
     private readonly IUnitOfWork _unitOfWork;
     private readonly TimeProvider _timeProvider;
+    private readonly AuditLogService _auditLogs;
 
     public VehicleService(
         IVehicleRepository vehicles,
         ICustomerRepository customers,
         IUnitOfWork unitOfWork,
-        TimeProvider timeProvider)
+        TimeProvider timeProvider,
+        AuditLogService auditLogs)
     {
         _vehicles = vehicles;
         _customers = customers;
         _unitOfWork = unitOfWork;
         _timeProvider = timeProvider;
+        _auditLogs = auditLogs;
     }
 
     public async Task<IReadOnlyList<VehicleDetails>> GetAllAsync(
@@ -71,6 +74,13 @@ public sealed class VehicleService
 
         await _vehicles.AddAsync(vehicle, cancellationToken);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
+        await _auditLogs.RecordAsync(
+            "Vehicle.Created",
+            "Vehicle",
+            vehicle.Id,
+            $"Registered vehicle {vehicle.RegistrationNumber} ({vehicle.Make} {vehicle.Model}) for {customer.FullName}.",
+            newValues: VehicleSnapshot(vehicle),
+            cancellationToken: cancellationToken);
         return ToDetails(vehicle, customer.FullName);
     }
 
@@ -91,6 +101,7 @@ public sealed class VehicleService
             throw new DuplicateRegistrationException();
         }
 
+        var oldValues = VehicleSnapshot(vehicle);
         vehicle.Update(
             command.CustomerId,
             normalizedRegistration,
@@ -100,6 +111,14 @@ public sealed class VehicleService
             command.Mileage,
             command.IsActive);
 
+        await _auditLogs.StageAsync(
+            "Vehicle.Updated",
+            "Vehicle",
+            vehicle.Id,
+            $"Updated vehicle {vehicle.RegistrationNumber} ({vehicle.Make} {vehicle.Model}).",
+            oldValues: oldValues,
+            newValues: VehicleSnapshot(vehicle),
+            cancellationToken: cancellationToken);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
         return ToDetails(vehicle, customer.FullName);
     }
@@ -113,9 +132,28 @@ public sealed class VehicleService
                 "This vehicle cannot be deleted while appointments are still linked to it.");
         }
 
+        var oldValues = VehicleSnapshot(vehicle);
         _vehicles.Remove(vehicle);
+        await _auditLogs.StageAsync(
+            "Vehicle.Deleted",
+            "Vehicle",
+            vehicle.Id,
+            $"Deleted vehicle {vehicle.RegistrationNumber} ({vehicle.Make} {vehicle.Model}).",
+            oldValues: oldValues,
+            cancellationToken: cancellationToken);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
     }
+
+    private static object VehicleSnapshot(Vehicle vehicle) => new
+    {
+        vehicle.CustomerId,
+        vehicle.RegistrationNumber,
+        vehicle.Make,
+        vehicle.Model,
+        vehicle.Year,
+        vehicle.Mileage,
+        vehicle.IsActive
+    };
 
     private async Task<Customer> FindCustomerAsync(
         int id,
