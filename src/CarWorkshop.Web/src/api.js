@@ -454,6 +454,8 @@ export function createApiClient(
     getAppointment: (id, { signal } = {}) => request(`/api/appointments/${id}`, { signal }),
     addAppointment: (appointment, { signal } = {}) => request("/api/appointments", { method: "POST", body: appointment, signal }),
     updateAppointment: (id, appointment, { signal } = {}) => request(`/api/appointments/${id}`, { method: "PUT", body: appointment, signal }),
+    transitionAppointmentStatus: (id, payload, { signal } = {}) => request(`/api/appointments/${id}/status`, { method: "POST", body: payload, signal }),
+    logReceiptPrinted: (id, { signal } = {}) => request(`/api/appointments/${id}/receipt-printed`, { method: "POST", signal }),
     recordService: (id, record, { signal } = {}) => request(`/api/appointments/${id}/service-record`, { method: "POST", body: record, signal }),
     getServices: ({ signal } = {}) => request("/api/services", { signal }),
     addService: (service, { signal } = {}) => request("/api/services", { method: "POST", body: service, signal }),

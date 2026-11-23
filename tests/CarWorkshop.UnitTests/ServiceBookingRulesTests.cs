@@ -70,4 +70,69 @@ public sealed class ServiceBookingRulesTests
         Assert.Equal(95m, snapshot.Price);
         Assert.Equal(90, snapshot.DurationMinutes);
     }
+
+    [Fact]
+    public void TransitionStatus_follows_workflow_and_stores_trimmed_reason()
+    {
+        var service = new Service("Brake check", null, 75m, 60);
+        var booking = Appointment.CreateBooking(1, 2, StartUtc, [service], null, NowUtc);
+
+        Assert.Throws<InvalidOperationException>(() =>
+            booking.TransitionStatus(AppointmentStatus.Completed, null, NowUtc));
+        Assert.Throws<InvalidOperationException>(() =>
+            booking.TransitionStatus(AppointmentStatus.Requested, null, NowUtc));
+
+        booking.TransitionStatus(AppointmentStatus.Confirmed, null, NowUtc);
+        Assert.Equal(AppointmentStatus.Confirmed, booking.Status);
+
+        booking.TransitionStatus(AppointmentStatus.Cancelled, "  Customer rescheduled  ", NowUtc);
+        Assert.Equal(AppointmentStatus.Cancelled, booking.Status);
+        Assert.Equal("Customer rescheduled", booking.StatusReason);
+
+        Assert.Throws<InvalidOperationException>(() =>
+            booking.TransitionStatus(AppointmentStatus.Confirmed, null, NowUtc));
+    }
+
+    [Fact]
+    public void TransitionStatus_rejects_overlong_reason()
+    {
+        var service = new Service("Brake check", null, 75m, 60);
+        var booking = Appointment.CreateBooking(1, 2, StartUtc, [service], null, NowUtc);
+
+        Assert.Throws<ArgumentException>(() =>
+            booking.TransitionStatus(AppointmentStatus.Rejected, new string('r', Appointment.MaxStatusReasonLength + 1), NowUtc));
+    }
+
+    [Fact]
+    public void ServiceRecord_requires_next_service_mileage_above_current_mileage()
+    {
+        var service = new Service("Oil change", null, 120m, 60);
+        var booking = Appointment.CreateBooking(1, 2, StartUtc, [service], null, NowUtc);
+        booking.TransitionStatus(AppointmentStatus.Confirmed, null, NowUtc);
+        booking.TransitionStatus(AppointmentStatus.InProgress, null, StartUtc);
+        booking.TransitionStatus(AppointmentStatus.Completed, null, StartUtc.AddHours(1));
+
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            booking.RecordService(60000, "Oil change", StartUtc.AddHours(1), nextServiceMileage: 60000));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            booking.RecordService(60000, "Oil change", StartUtc.AddHours(1), nextServiceMileage: 55000));
+
+        booking.RecordService(60000, "Oil change", StartUtc.AddHours(1), nextServiceMileage: 70000);
+        Assert.Equal(70000, booking.ServiceRecord!.NextServiceMileage);
+    }
+
+    [Fact]
+    public void Vehicle_RecordOdometerReading_only_advances_forward()
+    {
+        var vehicle = Vehicle.Create(1, "JUP9381", "Honda", "City", 2022, 50000, true, NowUtc);
+
+        Assert.False(vehicle.RecordOdometerReading(42000));
+        Assert.Equal(50000, vehicle.Mileage);
+
+        Assert.False(vehicle.RecordOdometerReading(50000));
+        Assert.Equal(50000, vehicle.Mileage);
+
+        Assert.True(vehicle.RecordOdometerReading(64200));
+        Assert.Equal(64200, vehicle.Mileage);
+    }
 }

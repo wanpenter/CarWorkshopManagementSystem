@@ -73,7 +73,12 @@ more active services by ID. Inactive services cannot be added to new bookings, b
 existing bookings retain their service snapshots. Appointments use
 `/api/appointments` and `/api/appointments/{id}`. New bookings start as `Requested`.
 Staff can confirm or reject them; confirmed bookings can move to `InProgress`, then
-`Completed`, or be cancelled before completion. The selected vehicle must belong to
+`Completed`, or be cancelled before completion using the one-click workflow actions
+(`POST /api/appointments/{id}/status`) with confirmation dialogs and optional
+cancellation/rejection reasons. Completed appointments include a printable
+**Service receipt** preview (`Print / Save as PDF`) that logs `Appointment.ReceiptPrinted`
+(`POST /api/appointments/{id}/receipt-printed`). Apply `AddAppointmentStatusReason`
+alongside `AddServiceRecords` and `AddAuditLogs` before starting this version. The selected vehicle must belong to
 the selected customer. Booking starts must be on a 30-minute interval between
 08:30 and 17:00 Malaysia time; the estimated work must finish by 17:30. At most 10
 active bookings are allowed per day, and the same vehicle cannot have overlapping

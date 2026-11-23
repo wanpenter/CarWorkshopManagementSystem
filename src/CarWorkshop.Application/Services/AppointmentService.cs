@@ -148,28 +148,97 @@ public sealed class AppointmentService(
         }, cancellationToken);
     }
 
-    public Task<AppointmentDetails> RecordServiceAsync(int appointmentId, int mileage,
-        IReadOnlyList<int> serviceIds, string? notes, string? workPerformed,
+    public Task<AppointmentDetails> TransitionStatusAsync(
+        int id,
+        AppointmentStatus nextStatus,
+        string? reason,
         CancellationToken cancellationToken = default) =>
         appointments.WithSchedulingLockAsync(async () =>
         {
-            var appointment = await FindAppointmentAsync(appointmentId, cancellationToken);
-            var summary = await BuildServiceSummaryAsync(appointment, serviceIds, notes, workPerformed, cancellationToken);
+            var appointment = await FindAppointmentAsync(id, cancellationToken);
+            var oldStatus = appointment.Status;
+            var oldValues = AppointmentSnapshot(appointment);
             try
             {
-                appointment.RecordService(mileage, summary, timeProvider.GetUtcNow().UtcDateTime);
+                appointment.TransitionStatus(nextStatus, reason, timeProvider.GetUtcNow().UtcDateTime);
             }
             catch (InvalidOperationException exception)
             {
                 throw new ConflictException(exception.Message);
             }
 
+            var reasonSuffix = string.IsNullOrWhiteSpace(appointment.StatusReason)
+                ? string.Empty
+                : $" Reason: {appointment.StatusReason}";
+            await auditLogs.StageAsync(
+                "Appointment.StatusChanged",
+                "Appointment",
+                appointment.Id,
+                $"Changed appointment #{appointment.Id} status from {oldStatus} to {appointment.Status}.{reasonSuffix}",
+                oldValues: oldValues,
+                newValues: AppointmentSnapshot(appointment),
+                cancellationToken: cancellationToken);
+            await unitOfWork.SaveChangesAsync(cancellationToken);
+            return ToDetails(appointment);
+        }, cancellationToken);
+
+    public async Task LogReceiptPrintedAsync(int id, CancellationToken cancellationToken = default)
+    {
+        var appointment = await FindAppointmentAsync(id, cancellationToken);
+        if (appointment.Status != AppointmentStatus.Completed)
+            throw new ConflictException("Receipts can only be printed for completed appointments.");
+
+        var receiptNumber = $"TP-{appointment.ScheduledAtUtc.Add(MalaysiaOffset):yyyy}-{appointment.Id:D5}";
+        await auditLogs.RecordAsync(
+            "Appointment.ReceiptPrinted",
+            "Appointment",
+            appointment.Id,
+            $"Printed service receipt {receiptNumber} for appointment #{appointment.Id}.",
+            newValues: new
+            {
+                receiptNumber,
+                hasServiceRecord = appointment.ServiceRecord is not null,
+                totalPrice = appointment.Services.Sum(service => service.Price)
+            },
+            cancellationToken: cancellationToken);
+    }
+
+    public Task<AppointmentDetails> RecordServiceAsync(int appointmentId, int mileage,
+        IReadOnlyList<int> serviceIds, string? notes, string? workPerformed,
+        int? nextServiceMileage = null,
+        CancellationToken cancellationToken = default) =>
+        appointments.WithSchedulingLockAsync(async () =>
+        {
+            var appointment = await FindAppointmentAsync(appointmentId, cancellationToken);
+            var summary = await BuildServiceSummaryAsync(appointment, serviceIds, notes, workPerformed, cancellationToken);
+            var previousVehicleMileage = appointment.Vehicle.Mileage;
+            try
+            {
+                appointment.RecordService(mileage, summary, timeProvider.GetUtcNow().UtcDateTime, nextServiceMileage);
+            }
+            catch (InvalidOperationException exception)
+            {
+                throw new ConflictException(exception.Message);
+            }
+
+            var vehicleMileageUpdated = appointment.Vehicle.RecordOdometerReading(mileage);
+            var nextServiceSuffix = nextServiceMileage.HasValue
+                ? $" (next service due at {nextServiceMileage.Value:N0} km)"
+                : string.Empty;
             await auditLogs.StageAsync(
                 "Appointment.ServiceRecorded",
                 "Appointment",
                 appointment.Id,
-                $"Recorded service for appointment #{appointment.Id} at {mileage:N0} km.",
-                newValues: new { mileage, workPerformed = summary },
+                $"Recorded service for appointment #{appointment.Id} at {mileage:N0} km{nextServiceSuffix}.",
+                oldValues: vehicleMileageUpdated ? new { vehicleMileage = previousVehicleMileage } : null,
+                newValues: new
+                {
+                    mileage,
+                    nextServiceMileage,
+                    vehicleMileage = appointment.Vehicle.Mileage,
+                    vehicleMileageUpdated,
+                    workPerformed = summary
+                },
                 cancellationToken: cancellationToken);
             await unitOfWork.SaveChangesAsync(cancellationToken);
             return ToDetails(appointment);
@@ -289,6 +358,7 @@ public sealed class AppointmentService(
         appointment.ScheduledAtUtc,
         appointment.EstimatedEndUtc,
         status = appointment.Status.ToString(),
+        appointment.StatusReason,
         appointment.MechanicId,
         services = appointment.Services.Select(item => item.Name).ToArray(),
         appointment.Notes
@@ -306,6 +376,7 @@ public sealed class AppointmentService(
             appointment.Notes, appointment.Status.ToString(), appointment.CreatedAt,
             appointment.MechanicId, appointment.Mechanic?.FullName,
             appointment.ServiceRecord is { } record
-                ? new ServiceRecordDetails(record.Mileage, record.WorkPerformed, record.RecordedAtUtc)
-                : null);
+                ? new ServiceRecordDetails(record.Mileage, record.WorkPerformed, record.RecordedAtUtc, record.NextServiceMileage)
+                : null,
+            appointment.StatusReason);
 }

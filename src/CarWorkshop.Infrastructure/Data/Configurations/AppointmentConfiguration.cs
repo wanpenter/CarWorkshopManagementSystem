@@ -49,6 +49,9 @@ internal sealed class AppointmentConfiguration : IEntityTypeConfiguration<Appoin
             .HasMaxLength(20)
             .IsRequired();
 
+        builder.Property(appointment => appointment.StatusReason)
+            .HasMaxLength(Appointment.MaxStatusReasonLength);
+
         builder.Property(appointment => appointment.CreatedAt)
             .HasConversion(
                 value => value,

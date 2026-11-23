@@ -59,6 +59,10 @@ namespace CarWorkshop.Infrastructure.Migrations
                         .HasMaxLength(20)
                         .HasColumnType("varchar(20)");
 
+                    b.Property<string>("StatusReason")
+                        .HasMaxLength(300)
+                        .HasColumnType("varchar(300)");
+
                     b.Property<int>("VehicleId")
                         .HasColumnType("int");
 
@@ -445,6 +449,9 @@ namespace CarWorkshop.Infrastructure.Migrations
                                 .HasColumnType("int");
 
                             b1.Property<int>("Mileage")
+                                .HasColumnType("int");
+
+                            b1.Property<int?>("NextServiceMileage")
                                 .HasColumnType("int");
 
                             b1.Property<DateTime>("RecordedAtUtc")

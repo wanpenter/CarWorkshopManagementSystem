@@ -273,6 +273,116 @@ public sealed class BookingApiTests(BookingApiFactory app) : IClassFixture<Booki
         Assert.Null(Assert.Single(results, result => result.Id == unrelated.Id).ServiceRecord);
     }
 
+    [Fact]
+    public async Task Status_transition_endpoint_enforces_workflow_persists_reason_and_logs_receipt_printing()
+    {
+        var scenario = await app.SeedAsync(vehicleCount: 2);
+        var booking = await CreateAsync(scenario);
+        var cancelledBooking = await CreateAsync(scenario, vehicleIndex: 1, startUtc: scenario.StartUtc.AddHours(2));
+
+        // Invalid jump directly to Completed returns 409.
+        using var invalidJump = await app.Client.PostAsJsonAsync(
+            $"/api/appointments/{booking.Id}/status",
+            new { status = "Completed" });
+        await AssertConflictAsync(invalidJump, "cannot change");
+
+        // Receipt printing before completion is rejected with 409.
+        using var earlyReceipt = await app.Client.PostAsync(
+            $"/api/appointments/{booking.Id}/receipt-printed",
+            content: null);
+        await AssertConflictAsync(earlyReceipt, "completed");
+
+        // Valid step-by-step workflow progression.
+        foreach (var nextStatus in new[] { "Confirmed", "InProgress", "Completed" })
+        {
+            using var step = await app.Client.PostAsJsonAsync(
+                $"/api/appointments/{booking.Id}/status",
+                new { status = nextStatus });
+            await AssertStatusAsync(step, HttpStatusCode.OK);
+            var updated = await step.Content.ReadFromJsonAsync<AppointmentDetails>();
+            Assert.NotNull(updated);
+            Assert.Equal(nextStatus, updated.Status);
+        }
+
+        // Receipt printing after completion returns 204 and records AuditLog.
+        using var printReceipt = await app.Client.PostAsync(
+            $"/api/appointments/{booking.Id}/receipt-printed",
+            content: null);
+        await AssertStatusAsync(printReceipt, HttpStatusCode.NoContent);
+
+        // Cancellation persists trimmed reason and records it in AuditLog.
+        using var cancelResponse = await app.Client.PostAsJsonAsync(
+            $"/api/appointments/{cancelledBooking.Id}/status",
+            new { status = "Cancelled", reason = "  Customer postponed visit  " });
+        await AssertStatusAsync(cancelResponse, HttpStatusCode.OK);
+        var cancelled = await cancelResponse.Content.ReadFromJsonAsync<AppointmentDetails>();
+        Assert.NotNull(cancelled);
+        Assert.Equal("Cancelled", cancelled.Status);
+        Assert.Equal("Customer postponed visit", cancelled.StatusReason);
+
+        using var logsResponse = await app.Client.GetAsync(
+            $"/api/audit-logs?entityType=Appointment&search={booking.Id}&page=1&pageSize=20");
+        await AssertStatusAsync(logsResponse, HttpStatusCode.OK);
+        using var logsDoc = JsonDocument.Parse(await logsResponse.Content.ReadAsStringAsync());
+        Assert.Contains(logsDoc.RootElement.GetProperty("items").EnumerateArray(), item =>
+            item.GetProperty("entityId").GetInt32() == booking.Id &&
+            item.GetProperty("action").GetString() == "Appointment.ReceiptPrinted");
+
+        using var cancelLogsResponse = await app.Client.GetAsync(
+            $"/api/audit-logs?entityType=Appointment&search={cancelledBooking.Id}&page=1&pageSize=20");
+        await AssertStatusAsync(cancelLogsResponse, HttpStatusCode.OK);
+        using var cancelLogsDoc = JsonDocument.Parse(await cancelLogsResponse.Content.ReadAsStringAsync());
+        Assert.Contains(cancelLogsDoc.RootElement.GetProperty("items").EnumerateArray(), item =>
+            item.GetProperty("entityId").GetInt32() == cancelledBooking.Id &&
+            item.GetProperty("action").GetString() == "Appointment.StatusChanged" &&
+            item.GetProperty("summary").GetString()!.Contains("Customer postponed visit"));
+    }
+
+    [Fact]
+    public async Task Recording_service_persists_next_service_mileage_and_only_advances_vehicle_odometer()
+    {
+        var scenario = await app.SeedAsync();
+        var latest = await CreateAsync(scenario, startUtc: scenario.StartUtc);
+        var backfill = await CreateAsync(scenario, startUtc: scenario.StartUtc.AddHours(2));
+
+        foreach (var bookingId in new[] { latest.Id, backfill.Id })
+        {
+            foreach (var status in new[] { "Confirmed", "InProgress", "Completed" })
+            {
+                using var step = await app.Client.PostAsJsonAsync(
+                    $"/api/appointments/{bookingId}/status",
+                    new { status });
+                await AssertStatusAsync(step, HttpStatusCode.OK);
+            }
+        }
+
+        // Next service mileage <= current mileage is rejected with 400.
+        using var invalidNext = await app.Client.PostAsJsonAsync(
+            $"/api/appointments/{latest.Id}/service-record",
+            new { mileage = 75000, nextServiceMileage = 75000, serviceIds = new[] { scenario.ServiceId } });
+        await AssertValidationAsync(invalidNext, "nextServiceMileage");
+
+        // Higher odometer advances Vehicle.Mileage from 1000 to 75000 and persists nextServiceMileage.
+        using var savedLatest = await app.Client.PostAsJsonAsync(
+            $"/api/appointments/{latest.Id}/service-record",
+            new { mileage = 75000, nextServiceMileage = 85000, serviceIds = new[] { scenario.ServiceId } });
+        await AssertStatusAsync(savedLatest, HttpStatusCode.OK);
+        var latestDetails = await savedLatest.Content.ReadFromJsonAsync<AppointmentDetails>();
+        Assert.Equal(85000, latestDetails!.ServiceRecord!.NextServiceMileage);
+
+        var vehicleAfterLatest = await app.Client.GetFromJsonAsync<VehicleDetails>($"/api/vehicles/{scenario.VehicleIds[0]}");
+        Assert.Equal(75000, vehicleAfterLatest!.Mileage);
+
+        // Recording a lower historical reading must NOT roll back Vehicle.Mileage.
+        using var savedBackfill = await app.Client.PostAsJsonAsync(
+            $"/api/appointments/{backfill.Id}/service-record",
+            new { mileage = 62000, nextServiceMileage = 72000, serviceIds = new[] { scenario.ServiceId } });
+        await AssertStatusAsync(savedBackfill, HttpStatusCode.OK);
+
+        var vehicleAfterBackfill = await app.Client.GetFromJsonAsync<VehicleDetails>($"/api/vehicles/{scenario.VehicleIds[0]}");
+        Assert.Equal(75000, vehicleAfterBackfill!.Mileage);
+    }
+
     private async Task<AppointmentDetails> CreateAsync(BookingScenario scenario,
         int vehicleIndex = 0, DateTime? startUtc = null)
     {

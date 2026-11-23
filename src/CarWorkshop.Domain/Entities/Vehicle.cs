@@ -73,6 +73,22 @@ public sealed class Vehicle
         SetDetails(customerId, registrationNumber, make, model, year, mileage, isActive);
     }
 
+    public bool RecordOdometerReading(int mileage)
+    {
+        if (mileage < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(mileage), "Mileage cannot be negative.");
+        }
+
+        if (mileage <= Mileage)
+        {
+            return false;
+        }
+
+        Mileage = mileage;
+        return true;
+    }
+
     public static string NormalizeRegistrationNumber(string registrationNumber)
     {
         ArgumentNullException.ThrowIfNull(registrationNumber);

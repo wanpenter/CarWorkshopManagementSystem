@@ -2,6 +2,8 @@ namespace CarWorkshop.Domain.Entities;
 
 public sealed class Appointment
 {
+    public const int MaxStatusReasonLength = 300;
+
     private Appointment()
     {
     }
@@ -51,18 +53,40 @@ public sealed class Appointment
 
     public AppointmentStatus Status { get; private set; }
 
+    public string? StatusReason { get; private set; }
+
     public DateTime CreatedAt { get; private set; }
 
     public ServiceRecord? ServiceRecord { get; private set; }
 
-    public void RecordService(int mileage, string workPerformed, DateTime recordedAtUtc)
+    public void TransitionStatus(AppointmentStatus nextStatus, string? reason, DateTime nowUtc)
+    {
+        if (Status is AppointmentStatus.Completed or AppointmentStatus.Cancelled or AppointmentStatus.Rejected)
+            throw new InvalidOperationException($"A {Status} appointment can no longer be changed.");
+        if (Status == nextStatus)
+            throw new InvalidOperationException($"Appointment is already {Status}.");
+        if (!CanTransition(Status, nextStatus))
+            throw new InvalidOperationException($"Appointment status cannot change from {Status} to {nextStatus}.");
+        if (nextStatus is AppointmentStatus.Confirmed or AppointmentStatus.Scheduled
+            && ScheduledAtUtc <= EnsureUtc(nowUtc, nameof(nowUtc)))
+            throw new ArgumentOutOfRangeException(nameof(ScheduledAtUtc), "Scheduled time must be in the future.");
+
+        Status = nextStatus;
+        StatusReason = OptionalTrimmed(reason, MaxStatusReasonLength, nameof(reason));
+    }
+
+    public void RecordService(int mileage, string workPerformed, DateTime recordedAtUtc, int? nextServiceMileage = null)
     {
         if (Status != AppointmentStatus.Completed)
             throw new InvalidOperationException("Complete the appointment before recording service.");
         if (ServiceRecord is not null)
             throw new InvalidOperationException("This appointment already has a service record.");
 
-        ServiceRecord = new ServiceRecord(mileage, workPerformed, EnsureUtc(recordedAtUtc, nameof(recordedAtUtc)));
+        ServiceRecord = new ServiceRecord(
+            mileage,
+            workPerformed,
+            EnsureUtc(recordedAtUtc, nameof(recordedAtUtc)),
+            nextServiceMileage);
     }
 
     public static Appointment Create(

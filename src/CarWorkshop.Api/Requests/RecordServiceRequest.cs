@@ -9,6 +9,9 @@ public sealed class RecordServiceRequest
     [Range(0, int.MaxValue, ErrorMessage = "Enter a whole mileage of zero or greater.")]
     public int? Mileage { get; init; }
 
+    [Range(1, int.MaxValue, ErrorMessage = "Next service mileage must be a whole number greater than zero.")]
+    public int? NextServiceMileage { get; init; }
+
     public int[] ServiceIds { get; init; } = [];
 
     [StringLength(500)]

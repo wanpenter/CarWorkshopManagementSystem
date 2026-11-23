@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import AppointmentWorkflow from "./AppointmentWorkflow.jsx";
 import MechanicAssignment from "./MechanicAssignment.jsx";
 import { AppointmentServiceRecord } from "./ServiceRecord.jsx";
 import {
@@ -91,7 +92,9 @@ export default function AppointmentsSection({
   services,
   mechanics,
   onAssignMechanic,
+  onTransitionStatus,
   onRecordService,
+  onOpenReceipt,
   onAddMechanic,
   busy,
   onOpenSettings,
@@ -162,20 +165,6 @@ export default function AppointmentsSection({
     }, ...matchingOwner];
   }, [form.customerId, form.vehicleId, selectedAppointment, vehicles]);
 
-  const availableStatuses = useMemo(() => {
-    if (!selectedAppointment) return ["Requested"];
-    if (selectedAppointment.status === "Requested") {
-      return ["Requested", "Confirmed", "Rejected", "Cancelled"];
-    }
-    if (selectedAppointment.status === "Confirmed" || selectedAppointment.status === "Scheduled") {
-      return [selectedAppointment.status, "InProgress", "Cancelled"];
-    }
-    if (selectedAppointment.status === "InProgress") {
-      return ["InProgress", "Completed", "Cancelled"];
-    }
-    return [selectedAppointment.status];
-  }, [selectedAppointment]);
-
   const legacyWithoutServices = selectedAppointment && !selectedAppointment.services?.length;
   const terminalAppointment = ["Completed", "Cancelled", "Rejected"].includes(selectedAppointment?.status) || Boolean(legacyWithoutServices);
   const readOnlyReason = !terminalAppointment
@@ -187,7 +176,6 @@ export default function AppointmentsSection({
     Number(form.customerId) !== Number(selectedAppointment.customerId) ||
     Number(form.vehicleId) !== Number(selectedAppointment.vehicleId) ||
     form.scheduledAtLocal !== toWorkshopDateTimeInput(selectedAppointment.scheduledAtUtc) ||
-    form.status !== selectedAppointment.status ||
     form.notes !== (selectedAppointment.notes ?? "") ||
     form.serviceIds.length !== (selectedAppointment.services?.length ?? 0) ||
     form.serviceIds.some((id) => !selectedAppointment.services?.some((service) => Number(service.serviceId) === id))
@@ -276,6 +264,7 @@ export default function AppointmentsSection({
     const dateControl = event.currentTarget.elements.namedItem("scheduledAtLocal");
     const submittedForm = {
       ...form,
+      status: selectedAppointment?.status ?? form.status,
       scheduledAtLocal: typeof dateControl?.value === "string" ? dateControl.value : form.scheduledAtLocal
     };
     const validation = validateAppointment({ ...submittedForm, totalMinutes }, { includeStatus: editing });
@@ -353,6 +342,7 @@ export default function AppointmentsSection({
             onAddService={onAddService}
             onClearFilters={() => { setSearch(""); setCustomerFilter(""); setStatusFilter(""); }}
             onEdit={beginEdit}
+            onOpenReceipt={onOpenReceipt}
           />
         </div>
 
@@ -385,10 +375,27 @@ export default function AppointmentsSection({
                       : "Update the booking or choose a new review status."}
                 </p>
               </div>
+              {selectedAppointment && (
+                <AppointmentWorkflow
+                  key={`workflow-${selectedAppointment.id}`}
+                  appointment={selectedAppointment}
+                  busy={busy}
+                  ready={connectionStatus === "ready"}
+                  dirty={Boolean(bookingDirty)}
+                  legacyWithoutServices={Boolean(legacyWithoutServices)}
+                  onTransition={onTransitionStatus}
+                  onOpenReceipt={onOpenReceipt}
+                />
+              )}
               {terminalAppointment && (
                 <div className="readonly-banner" role="note">
                   <strong className="block font-semibold">Read-only record</strong>
                   <span className="mt-0.5 block text-ink-soft">{readOnlyReason}</span>
+                  {selectedAppointment?.statusReason && (
+                    <span className="mt-1.5 block text-ink">
+                      <strong>Reason:</strong> {selectedAppointment.statusReason}
+                    </span>
+                  )}
                 </div>
               )}
               {selectedAppointment?.status === "Completed" && (
@@ -430,11 +437,6 @@ export default function AppointmentsSection({
                   </fieldset>
                   <div className="mb-5 border-y border-paper-line py-3 text-sm" aria-live="polite"><span className="font-bold">{estimate.unchanged ? "Booked estimate" : "Current estimate"}</span><span className="ml-2">{totalMinutes} min · {money(totalPrice)}</span>{estimatedEnd && <span className="mt-1 block text-ink-soft">Expected finish: {formatAppointmentTime(estimatedEnd.toISOString())} MYT</span>}</div>
                   <TextAreaField id="notes" label="Notes (optional)" value={form.notes} maxLength={500} error={errors.notes} help="Up to 500 characters" onChange={updateField} />
-                  {selectedId !== null && (
-                    <SelectField id="status" label="Status" value={form.status} error={errors.status} help={form.status === "Requested" ? "Staff can confirm or reject this request." : "Changes are checked by the API."} onChange={updateField}>
-                      {availableStatuses.map((value) => <option key={value} value={value}>{statusLabels[value]}</option>)}
-                    </SelectField>
-                  )}
                   <FormError message={errors.form} />
                   {!terminalAppointment && (
                     <div className="form-actions">
@@ -456,7 +458,7 @@ export default function AppointmentsSection({
 }
 
 function AppointmentRecords(props) {
-  const { connectionStatus, errorMessage, customers, vehicles, services, appointments, visibleAppointments, hasFilters, selectedId, busy, onOpenSettings, onRetry, onAdd, onAddCustomer, onAddVehicle, onAddService, onClearFilters, onEdit } = props;
+  const { connectionStatus, errorMessage, customers, vehicles, services, appointments, visibleAppointments, hasFilters, selectedId, busy, onOpenSettings, onRetry, onAdd, onAddCustomer, onAddVehicle, onAddService, onClearFilters, onEdit, onOpenReceipt } = props;
   if (connectionStatus === "disconnected") {
     return <StatePanel title="Connect your workshop API" body="Add the backend address to load appointment records."><button className="button button-primary" type="button" onClick={onOpenSettings}>Set API address</button></StatePanel>;
   }
@@ -494,7 +496,7 @@ function AppointmentRecords(props) {
                 <TableCell className="max-w-70">{bookedServices(appointment)}<span className="mt-0.5 block text-sm text-ink-soft">{appointment.services?.length ? `${appointment.services.reduce((sum, service) => sum + Number(service.durationMinutes || 0), 0)} min · ${money(appointment.services.reduce((sum, service) => sum + Number(service.price || 0), 0))}` : "Legacy booking"}</span></TableCell>
                 <TableCell>{appointment.mechanicName || "Unassigned"}</TableCell>
                 <TableCell><span className={`status-text ${statusClasses[appointment.status] ?? "text-ink-soft"}`}>{statusLabels[appointment.status] ?? appointment.status}</span></TableCell>
-                <TableCell><AppointmentActions appointment={appointment} busy={busy} onEdit={onEdit} /></TableCell>
+                <TableCell><AppointmentActions appointment={appointment} busy={busy} onEdit={onEdit} onOpenReceipt={onOpenReceipt} /></TableCell>
               </tr>
             ))}
           </tbody>
@@ -510,7 +512,7 @@ function AppointmentRecords(props) {
             <MobileDatum label="Notes">{appointment.notes || "No notes"}</MobileDatum>
             <MobileDatum label="Mechanic">{appointment.mechanicName || "Unassigned"}</MobileDatum>
             <MobileDatum label="Status"><span className={statusClasses[appointment.status] ?? "text-ink-soft"}>{statusLabels[appointment.status] ?? appointment.status}</span></MobileDatum>
-            <div className="mt-2 border-t border-paper-line pt-2"><AppointmentActions appointment={appointment} busy={busy} onEdit={onEdit} /></div>
+            <div className="mt-2 border-t border-paper-line pt-2"><AppointmentActions appointment={appointment} busy={busy} onEdit={onEdit} onOpenReceipt={onOpenReceipt} /></div>
           </article>
         ))}
       </div>
@@ -518,12 +520,15 @@ function AppointmentRecords(props) {
   );
 }
 
-function AppointmentActions({ appointment, busy, onEdit }) {
+function AppointmentActions({ appointment, busy, onEdit, onOpenReceipt }) {
   const readOnly = ["Completed", "Cancelled", "Rejected"].includes(appointment.status) || !appointment.services?.length;
   const actionVerb = readOnly ? "View" : "Edit";
   return (
     <div className="flex flex-wrap justify-end gap-2 max-desk:justify-start">
       <button className="row-action" type="button" disabled={busy} onClick={() => onEdit(appointment)} aria-label={`${actionVerb} ${bookedServices(appointment)} appointment for ${appointment.customerName}`}>{actionVerb}</button>
+      {appointment.status === "Completed" && (
+        <button className="row-action text-rust-dark" type="button" disabled={busy} onClick={() => onOpenReceipt?.(appointment)} aria-label={`Print receipt for ${appointment.customerName}`}>Receipt</button>
+      )}
     </div>
   );
 }

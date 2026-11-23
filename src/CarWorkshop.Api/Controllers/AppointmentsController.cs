@@ -82,6 +82,28 @@ public sealed class AppointmentsController : ControllerBase
         return Ok(await _appointments.AssignMechanicAsync(id, request.MechanicId, cancellationToken));
     }
 
+    [HttpPost("{id:int}/status")]
+    public async Task<ActionResult<AppointmentDetails>> TransitionStatus(
+        int id,
+        TransitionAppointmentStatusRequest request,
+        CancellationToken cancellationToken)
+    {
+        return Ok(await _appointments.TransitionStatusAsync(
+            id,
+            ParseRequiredStatus(request.Status),
+            request.Reason,
+            cancellationToken));
+    }
+
+    [HttpPost("{id:int}/receipt-printed")]
+    public async Task<IActionResult> LogReceiptPrinted(
+        int id,
+        CancellationToken cancellationToken)
+    {
+        await _appointments.LogReceiptPrintedAsync(id, cancellationToken);
+        return NoContent();
+    }
+
     [HttpPost("{id:int}/service-record")]
     public async Task<ActionResult<AppointmentDetails>> RecordService(
         int id,
@@ -89,7 +111,13 @@ public sealed class AppointmentsController : ControllerBase
         CancellationToken cancellationToken)
     {
         return Ok(await _appointments.RecordServiceAsync(
-            id, request.Mileage!.Value, request.ServiceIds, request.Notes, request.WorkPerformed, cancellationToken));
+            id,
+            request.Mileage!.Value,
+            request.ServiceIds,
+            request.Notes,
+            request.WorkPerformed,
+            request.NextServiceMileage,
+            cancellationToken));
     }
 
     private static AppointmentStatus? ParseOptionalStatus(string? value)

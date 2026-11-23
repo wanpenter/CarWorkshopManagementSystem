@@ -19,6 +19,7 @@ import LoginScreen from "./components/LoginScreen.jsx";
 import AccountSection from "./components/AccountSection.jsx";
 import UsersSection from "./components/UsersSection.jsx";
 import AuditLogsSection from "./components/AuditLogsSection.jsx";
+import ServiceReceiptDialog from "./components/ServiceReceiptDialog.jsx";
 import "./auth.css";
 
 function App() {
@@ -56,6 +57,7 @@ function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleteError, setDeleteError] = useState("");
+  const [receiptAppointmentId, setReceiptAppointmentId] = useState(null);
   const [sessionUser, setSessionUser] = useState(null);
   const [authStatus, setAuthStatus] = useState("checking");
   const [authError, setAuthError] = useState("");
@@ -80,6 +82,7 @@ function App() {
     setOwnerFilter("");
     setActiveTab("dashboard");
     setDeleteTarget(null);
+    setReceiptAppointmentId(null);
     setSettingsOpen(false);
     setNotice(null);
     setStatus("disconnected");
@@ -285,6 +288,42 @@ function App() {
     }
   }
 
+  async function transitionAppointmentStatus(id, status, reason) {
+    if (!api || mutating) throw new Error("Another change is still in progress.");
+    setMutating(true);
+    try {
+      const updated = await api.transitionAppointmentStatus(id, { status, reason });
+      if (mountedRef.current) {
+        setAppointments((current) => current.map((item) => item.id === updated.id ? updated : item));
+      }
+      const statusMessages = {
+        Confirmed: "Booking confirmed.",
+        InProgress: "Job started (In progress).",
+        Completed: "Appointment marked as completed.",
+        Rejected: "Booking request rejected.",
+        Cancelled: "Appointment cancelled."
+      };
+      await refreshAfterWrite(statusMessages[status] || "Appointment status updated.");
+      return updated;
+    } finally {
+      if (mountedRef.current) setMutating(false);
+    }
+  }
+
+  function openReceipt(appointment) {
+    if (!appointment) return;
+    setReceiptAppointmentId(Number(appointment.id));
+  }
+
+  function closeReceipt() {
+    setReceiptAppointmentId(null);
+  }
+
+  function handlePrintReceipt(appointment) {
+    if (!api || !appointment?.id) return;
+    void api.logReceiptPrinted(appointment.id).catch(() => {});
+  }
+
   async function recordService(id, values) {
     if (!api || mutating) throw new Error("Another change is still in progress.");
     setMutating(true);
@@ -412,11 +451,20 @@ function App() {
     window.requestAnimationFrame(() => document.getElementById("vehicles-nav")?.focus());
   }
 
+  const receiptAppointment = useMemo(
+    () => receiptAppointmentId === null ? null : appointments.find((item) => Number(item.id) === receiptAppointmentId) ?? null,
+    [appointments, receiptAppointmentId]
+  );
+  const receiptCustomer = useMemo(
+    () => receiptAppointment ? customers.find((item) => Number(item.id) === Number(receiptAppointment.customerId)) ?? null : null,
+    [customers, receiptAppointment]
+  );
+
   return (
     <>
       {sessionUser && authStatus === "ready" ? <WorkshopShell user={sessionUser} onLogout={logout} signingOut={authBusy} activeTab={activeTab} counts={{ customers: customers.length, vehicles: vehicles.length, appointments: appointments.length, services: services.length, mechanics: mechanics.length }} status={status} mutating={mutating || authBusy} onNavigate={setActiveTab} onOpenSettings={openSettings}>
       <main id="main-content" tabIndex={-1}>
-        {notice && <div className="notice-container"><Notice notice={notice} onDismiss={() => setNotice(null)} /></div>}
+        {notice && <div className="notice-container no-print"><Notice notice={notice} onDismiss={() => setNotice(null)} /></div>}
         <DashboardSection active={activeTab === "dashboard"} status={status} errorMessage={errorMessage} customers={customers} vehicles={vehicles} services={services} mechanics={mechanics} appointments={appointments} busy={busy} onRetry={reloadRecords} onOpenSettings={openSettings} onNavigate={setActiveTab} />
         <CustomersSection
           active={activeTab === "customers"}
@@ -445,6 +493,7 @@ function App() {
           onSave={saveVehicle}
           onDelete={askToDelete}
           onAddCustomer={goToCustomers}
+          onOpenReceipt={openReceipt}
         />
         <AppointmentsSection
           active={activeTab === "appointments"}
@@ -456,7 +505,9 @@ function App() {
           services={services}
           mechanics={mechanics}
           onAssignMechanic={assignMechanic}
+          onTransitionStatus={transitionAppointmentStatus}
           onRecordService={recordService}
+          onOpenReceipt={openReceipt}
           onAddMechanic={() => { setActiveTab("mechanics"); window.requestAnimationFrame(() => document.getElementById("mechanics-nav")?.focus()); }}
           busy={busy}
           onOpenSettings={openSettings}
@@ -486,6 +537,7 @@ function App() {
 
       <SettingsDialog open={settingsOpen} initialValue={apiBaseUrl} busy={mutating || authBusy} onClose={closeSettings} onSave={saveSettings} />
       <DeleteDialog target={deleteTarget} error={deleteError} busy={mutating} onClose={closeDeleteDialog} onConfirm={confirmDelete} />
+      <ServiceReceiptDialog appointment={receiptAppointment} customer={receiptCustomer} onClose={closeReceipt} onPrint={handlePrintReceipt} />
     </>
   );
 }

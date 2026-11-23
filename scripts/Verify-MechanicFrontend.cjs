@@ -84,9 +84,7 @@ async function main() {
     const editBooking = () => appointments.getByRole('button', { name: /(?:Edit|View) .* appointment for Workflow Verification Customer/ }).filter({ visible: true }).click();
     await editBooking();
     await appointments.getByText('Confirm and save this booking before assigning a mechanic.', { exact: true }).waitFor();
-    await appointments.getByLabel('Status', { exact: true }).last().selectOption('Confirmed');
-    await save(appointments, 'Save changes', `/api/appointments/${appointment.id}`, 'PUT');
-    await editBooking();
+    await save(appointments, 'Confirm booking', `/api/appointments/${appointment.id}/status`, 'POST');
     await appointments.getByLabel('Mechanic', { exact: true }).selectOption(String(mechanic.id));
     await appointments.getByLabel('Notes (optional)', { exact: true }).fill('Unsaved change');
     assert.equal(await appointments.getByRole('button', { name: 'Assign mechanic', exact: true }).isDisabled(), true);
@@ -134,11 +132,9 @@ async function main() {
     await page.evaluate(() => scrollTo(0, 0));
     await page.screenshot({ path: path.resolve('src/CarWorkshop.Web/.verification/assignment-mobile.png'), fullPage: true });
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'Appointments mobile overflow');
-    for (const status of ['InProgress', 'Completed']) {
-      await appointments.getByLabel('Status', { exact: true }).last().selectOption(status);
-      await save(appointments, 'Save changes', `/api/appointments/${appointment.id}`, 'PUT');
-      await editBooking();
-    }
+    await save(appointments, 'Start work', `/api/appointments/${appointment.id}/status`, 'POST');
+    await appointments.getByRole('button', { name: 'Mark completed', exact: true }).click();
+    await save(appointments, 'Confirm completion', `/api/appointments/${appointment.id}/status`, 'POST');
     const stored = await page.request.get(`http://127.0.0.1:5273/api/appointments/${appointment.id}`);
     const record = await stored.json();
     assert.equal(record.status, 'Completed');

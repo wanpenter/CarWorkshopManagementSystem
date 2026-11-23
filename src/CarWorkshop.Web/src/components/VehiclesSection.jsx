@@ -35,7 +35,8 @@ export default function VehiclesSection({
   onRetry,
   onSave,
   onDelete,
-  onAddCustomer
+  onAddCustomer,
+  onOpenReceipt
 }) {
   const [search, setSearch] = useState("");
   const [selectedId, setSelectedId] = useState(null);
@@ -211,7 +212,7 @@ export default function VehiclesSection({
                 <h2 ref={editorTitleRef} id="vehicle-editor-title" tabIndex={-1} className="editor-title">{historyVehicle.registrationNumber}</h2>
                 <p className="mt-2 max-w-[65ch] text-ink-soft">{historyVehicle.make} {historyVehicle.model} · {historyVehicle.customerName}</p>
               </div>
-              <VehicleServiceHistory appointments={appointments} vehicleId={historyId} />
+              <VehicleServiceHistory appointments={appointments} vehicleId={historyId} onOpenReceipt={onOpenReceipt} />
               <div className="form-actions">
                 <button className="button button-primary" type="button" disabled={busy} onClick={() => beginEdit(historyVehicle)}>Edit vehicle</button>
                 <button className="button button-quiet" type="button" onClick={() => resetEditor()}>Close history</button>
