@@ -40,15 +40,20 @@ public sealed class ServiceBookingRulesTests
     }
 
     [Fact]
-    public void Requested_booking_requires_review_before_work_starts()
+    public void Requested_booking_requires_review_and_mechanic_before_work_starts()
     {
         var service = new Service("Inspection", null, 80m, 60);
         var booking = Appointment.CreateBooking(1, 2, StartUtc, [service], null, NowUtc);
 
         Assert.Throws<InvalidOperationException>(() =>
-        
-        booking.UpdateBooking( 1, 2, StartUtc, [service], null, AppointmentStatus.InProgress, NowUtc));
+            booking.UpdateBooking(1, 2, StartUtc, [service], null, AppointmentStatus.InProgress, NowUtc));
         booking.UpdateBooking(1, 2, StartUtc, [service], null, AppointmentStatus.Confirmed, NowUtc);
+
+        var missingMechanicError = Assert.Throws<InvalidOperationException>(() =>
+            booking.UpdateBooking(1, 2, StartUtc, [service], null, AppointmentStatus.InProgress, StartUtc));
+        Assert.Contains("Assign a mechanic", missingMechanicError.Message);
+
+        booking.AssignMechanic(CreateSavedMechanic());
         booking.UpdateBooking(1, 2, StartUtc, [service], null, AppointmentStatus.InProgress, StartUtc);
         booking.UpdateBooking(1, 2, StartUtc, [service], null, AppointmentStatus.Completed, StartUtc.AddHours(2));
 
@@ -109,6 +114,7 @@ public sealed class ServiceBookingRulesTests
         var service = new Service("Oil change", null, 120m, 60);
         var booking = Appointment.CreateBooking(1, 2, StartUtc, [service], null, NowUtc);
         booking.TransitionStatus(AppointmentStatus.Confirmed, null, NowUtc);
+        booking.AssignMechanic(CreateSavedMechanic());
         booking.TransitionStatus(AppointmentStatus.InProgress, null, StartUtc);
         booking.TransitionStatus(AppointmentStatus.Completed, null, StartUtc.AddHours(1));
 
@@ -119,6 +125,29 @@ public sealed class ServiceBookingRulesTests
 
         booking.RecordService(60000, "Oil change", StartUtc.AddHours(1), nextServiceMileage: 70000);
         Assert.Equal(70000, booking.ServiceRecord!.NextServiceMileage);
+    }
+
+    [Fact]
+    public void TransitionStatus_to_InProgress_requires_an_assigned_mechanic()
+    {
+        var service = new Service("Brake check", null, 75m, 60);
+        var booking = Appointment.CreateBooking(1, 2, StartUtc, [service], null, NowUtc);
+        booking.TransitionStatus(AppointmentStatus.Confirmed, null, NowUtc);
+
+        var error = Assert.Throws<InvalidOperationException>(() =>
+            booking.TransitionStatus(AppointmentStatus.InProgress, null, StartUtc));
+        Assert.Contains("Assign a mechanic", error.Message);
+
+        booking.AssignMechanic(CreateSavedMechanic());
+        booking.TransitionStatus(AppointmentStatus.InProgress, null, StartUtc);
+        Assert.Equal(AppointmentStatus.InProgress, booking.Status);
+    }
+
+    private static Mechanic CreateSavedMechanic(int id = 1)
+    {
+        var mechanic = Mechanic.Create("Test Mechanic", "0123456789", NowUtc);
+        typeof(Mechanic).GetProperty(nameof(Mechanic.Id))!.SetValue(mechanic, id);
+        return mechanic;
     }
 
     [Fact]

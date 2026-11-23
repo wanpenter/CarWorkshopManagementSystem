@@ -1062,7 +1062,7 @@ function PortalBookServiceSection({ active, vehicles, services, busy, onGoVehicl
           <div className="readonly-banner mt-6">
             <strong className="block font-semibold">What happens next?</strong>
             <span className="mt-1 block text-xs text-ink-soft">
-              New bookings start as <strong>Needs review</strong>. Once our workshop confirms your slot and assigns a mechanic, your status updates live in <strong>My bookings</strong>.
+              Slot availability is checked automatically against active workshop mechanics and our daily capacity. New bookings start as <strong>Needs review</strong> until confirmed by our team.
             </span>
           </div>
         </aside>

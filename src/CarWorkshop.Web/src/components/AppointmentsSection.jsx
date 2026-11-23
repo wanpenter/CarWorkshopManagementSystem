@@ -136,6 +136,7 @@ export default function AppointmentsSection({
     [appointments, selectedId]
   );
   const activeServices = useMemo(() => services.filter((service) => service.isActive), [services]);
+  const activeMechanics = useMemo(() => mechanics.filter((mechanic) => mechanic.isActive), [mechanics]);
   const estimate = useMemo(() => appointmentEstimate(selectedAppointment, form.serviceIds, services), [selectedAppointment, form.serviceIds, services]);
   const { totalMinutes, totalPrice } = estimate;
   const displayedServices = useMemo(() => {
@@ -382,7 +383,12 @@ export default function AppointmentsSection({
     }
   }
 
-  const noBookingFoundation = connectionStatus === "ready" && (customers.length === 0 || vehicles.length === 0 || (activeServices.length === 0 && selectedId === null));
+  const noBookingFoundation = connectionStatus === "ready" && (
+    customers.length === 0 ||
+    vehicles.length === 0 ||
+    (activeServices.length === 0 && selectedId === null) ||
+    (activeMechanics.length === 0 && selectedId === null)
+  );
 
   return (
     <section hidden={!active} aria-labelledby="appointments-title">
@@ -403,7 +409,7 @@ export default function AppointmentsSection({
               <div>
                 <strong className="text-ink">Today&apos;s capacity</strong>
                 <span className="ml-2 text-ink-soft tabular-nums">
-                  {todayActiveCount} / {DAILY_CAPACITY} slots booked ({Math.max(0, DAILY_CAPACITY - todayActiveCount)} remaining)
+                  {todayActiveCount} / {DAILY_CAPACITY} daily slots · {activeMechanics.length} active {activeMechanics.length === 1 ? "mechanic" : "mechanics"}
                 </span>
               </div>
               <div className="flex items-center gap-2">
@@ -496,9 +502,13 @@ export default function AppointmentsSection({
               <StatePanel title="Register a vehicle first" body="Add a vehicle to a customer before booking their workshop visit.">
                 <button className="button button-primary" type="button" onClick={onAddVehicle}>Go to vehicles</button>
               </StatePanel>
-            ) : (
+            ) : activeServices.length === 0 ? (
               <StatePanel title="Add a service first" body="Bookings need at least one active service with a price and estimated duration.">
                 <button className="button button-primary" type="button" onClick={onAddService}>Go to services</button>
+              </StatePanel>
+            ) : (
+              <StatePanel title="Add an active mechanic first" body="At least one active mechanic is required before the workshop can accept new bookings.">
+                <button className="button button-primary" type="button" onClick={onAddMechanic}>Go to mechanics</button>
               </StatePanel>
             )
           ) : (

@@ -11,6 +11,9 @@ public interface IMechanicRepository
         int id,
         CancellationToken cancellationToken = default);
 
+    Task<int> CountActiveAsync(
+        CancellationToken cancellationToken = default);
+
     Task AddAsync(
         Mechanic mechanic,
         CancellationToken cancellationToken = default);

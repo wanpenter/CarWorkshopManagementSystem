@@ -60,9 +60,14 @@ public sealed class MechanicAssignmentApiTests(BookingApiFactory app) : IClassFi
     {
         var scenario = await app.SeedAsync();
         var booking = await BookingAsync(scenario);
+        int? expectedMechanicId = null;
         if (status is "InProgress" or "Completed")
         {
             await UpdateAsync(scenario, booking, "Confirmed");
+            var initialMechanic = await MechanicAsync();
+            using var initialAssign = await AssignAsync(booking.Id, initialMechanic.Id);
+            await ExpectAsync(initialAssign, HttpStatusCode.OK);
+            expectedMechanicId = initialMechanic.Id;
             await UpdateAsync(scenario, booking, "InProgress");
         }
         if (status is not ("Requested" or "InProgress"))
@@ -71,7 +76,7 @@ public sealed class MechanicAssignmentApiTests(BookingApiFactory app) : IClassFi
         var mechanic = await MechanicAsync();
         using var response = await AssignAsync(booking.Id, mechanic.Id);
         await ExpectAsync(response, HttpStatusCode.Conflict);
-        Assert.Null((await GetAsync(booking.Id)).MechanicId);
+        Assert.Equal(expectedMechanicId, (await GetAsync(booking.Id)).MechanicId);
     }
 
     [Theory]

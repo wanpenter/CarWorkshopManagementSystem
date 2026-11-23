@@ -213,9 +213,11 @@ public sealed class CustomerPortalApiTests(BookingApiFactory app) : IClassFixtur
         var bookingId = bookingJson.RootElement.GetProperty("id").GetInt32();
         Assert.Equal("Requested", bookingJson.RootElement.GetProperty("status").GetString());
 
-        // 4. Staff confirms and starts work -> Customer can NO LONGER cancel online (409 Conflict).
+        // 4. Staff confirms, assigns a mechanic, and starts work -> Customer can NO LONGER cancel online (409 Conflict).
         using var confirm = await app.Client.PostAsJsonAsync($"/api/appointments/{bookingId}/status", new { status = "Confirmed" });
         Assert.Equal(HttpStatusCode.OK, confirm.StatusCode);
+        using var assign = await app.Client.PutAsJsonAsync($"/api/appointments/{bookingId}/mechanic", new { mechanicId = app.DefaultMechanicId });
+        Assert.Equal(HttpStatusCode.OK, assign.StatusCode);
         using var start = await app.Client.PostAsJsonAsync($"/api/appointments/{bookingId}/status", new { status = "InProgress" });
         Assert.Equal(HttpStatusCode.OK, start.StatusCode);
 

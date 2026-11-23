@@ -201,15 +201,16 @@ export default function AppointmentWorkflow({
           {(status === "Confirmed" || status === "Scheduled") && (
             <>
               {!appointment.mechanicId && (
-                <p className="mb-3 rounded-sm border border-paper-line bg-paper px-3 py-2 text-xs text-ink-soft">
-                  Tip: No mechanic assigned yet. You can assign one below before starting work.
+                <p className="mb-3 rounded-sm border border-rust/40 bg-rust-soft px-3 py-2 text-xs font-semibold text-rust-dark" role="status">
+                  Mechanic required: assign an active mechanic below before starting work.
                 </p>
               )}
               <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
                   className="button button-primary flex-1"
-                  disabled={actionsDisabled}
+                  disabled={actionsDisabled || !appointment.mechanicId}
+                  title={!appointment.mechanicId ? "Assign a mechanic below before starting work" : undefined}
                   onClick={() => handleActionClick("InProgress")}
                 >
                   {pendingStatus === "InProgress" ? "Starting..." : "Start work"}

@@ -67,6 +67,8 @@ public sealed class Appointment
             throw new InvalidOperationException($"Appointment is already {Status}.");
         if (!CanTransition(Status, nextStatus))
             throw new InvalidOperationException($"Appointment status cannot change from {Status} to {nextStatus}.");
+        if (nextStatus == AppointmentStatus.InProgress && !MechanicId.HasValue)
+            throw new InvalidOperationException("Assign a mechanic before starting work on this appointment.");
         if (nextStatus is AppointmentStatus.Confirmed or AppointmentStatus.Scheduled
             && ScheduledAtUtc <= EnsureUtc(nowUtc, nameof(nowUtc)))
             throw new ArgumentOutOfRangeException(nameof(ScheduledAtUtc), "Scheduled time must be in the future.");
@@ -167,6 +169,8 @@ public sealed class Appointment
             throw new InvalidOperationException($"A {Status} appointment can no longer be changed.");
         if (!CanTransition(Status, status))
             throw new InvalidOperationException($"Appointment status cannot change from {Status} to {status}.");
+        if (status == AppointmentStatus.InProgress && !MechanicId.HasValue)
+            throw new InvalidOperationException("Assign a mechanic before starting work on this appointment.");
         if (services.Count == 0)
             throw new ArgumentException("Choose at least one service.", nameof(services));
         ValidateIds(customerId, vehicleId);

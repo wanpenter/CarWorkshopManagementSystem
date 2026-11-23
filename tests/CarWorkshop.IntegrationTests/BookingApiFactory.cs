@@ -14,7 +14,7 @@ using MySqlConnector;
 
 namespace CarWorkshop.IntegrationTests;
 
-public sealed class BookingApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
+public class BookingApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
 {
     private readonly string _databaseName = $"cw_it_{Guid.NewGuid():N}";
     private string _adminConnectionString = string.Empty;
@@ -27,6 +27,10 @@ public sealed class BookingApiFactory : WebApplicationFactory<Program>, IAsyncLi
     public const string AdminPassword = "Integration!Admin#2039";
 
     public HttpClient Client { get; private set; } = null!;
+
+    public int DefaultMechanicId { get; private set; }
+
+    protected virtual int BaselineActiveMechanicCount => 10;
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
@@ -76,7 +80,22 @@ public sealed class BookingApiFactory : WebApplicationFactory<Program>, IAsyncLi
                 AdminUsername, "Integration Administrator", "Admin", "pending", _clock.GetUtcNow().UtcDateTime);
             admin.ChangePasswordHash(passwordHasher.HashPassword(admin, AdminPassword));
             db.WorkshopUsers.Add(admin);
-            await db.SaveChangesAsync();
+            if (BaselineActiveMechanicCount > 0)
+            {
+                var mechanics = Enumerable.Range(1, BaselineActiveMechanicCount)
+                    .Select(index => Mechanic.Create(
+                        $"Baseline Mechanic {index}",
+                        $"0123456{index:D3}",
+                        _clock.GetUtcNow().UtcDateTime))
+                    .ToArray();
+                db.Mechanics.AddRange(mechanics);
+                await db.SaveChangesAsync();
+                DefaultMechanicId = mechanics[0].Id;
+            }
+            else
+            {
+                await db.SaveChangesAsync();
+            }
 
             Client = await LoginAsync(AdminUsername, AdminPassword);
         }

@@ -228,7 +228,11 @@ public sealed class BookingApiTests(BookingApiFactory app) : IClassFixture<Booki
 
         using var early = await staff.PostAsJsonAsync(recordUrl, serviceRecord);
         await AssertConflictAsync(early, "Complete the appointment");
-        foreach (var status in new[] { "Confirmed", "InProgress", "Completed" })
+        using (var confirmed = await staff.PutAsJsonAsync(appointmentUrl, scenario.Update("Confirmed")))
+            await AssertStatusAsync(confirmed, HttpStatusCode.OK);
+        using (var assigned = await staff.PutAsJsonAsync($"{appointmentUrl}/mechanic", new { mechanicId = app.DefaultMechanicId }))
+            await AssertStatusAsync(assigned, HttpStatusCode.OK);
+        foreach (var status in new[] { "InProgress", "Completed" })
         {
             using var updated = await staff.PutAsJsonAsync(appointmentUrl, scenario.Update(status));
             await AssertStatusAsync(updated, HttpStatusCode.OK);
@@ -292,8 +296,29 @@ public sealed class BookingApiTests(BookingApiFactory app) : IClassFixture<Booki
             content: null);
         await AssertConflictAsync(earlyReceipt, "completed");
 
-        // Valid step-by-step workflow progression.
-        foreach (var nextStatus in new[] { "Confirmed", "InProgress", "Completed" })
+        // Valid step-by-step workflow progression (mechanic required before InProgress).
+        using (var confirmStep = await app.Client.PostAsJsonAsync(
+                   $"/api/appointments/{booking.Id}/status",
+                   new { status = "Confirmed" }))
+        {
+            await AssertStatusAsync(confirmStep, HttpStatusCode.OK);
+        }
+
+        using (var missingMechanic = await app.Client.PostAsJsonAsync(
+                   $"/api/appointments/{booking.Id}/status",
+                   new { status = "InProgress" }))
+        {
+            await AssertConflictAsync(missingMechanic, "Assign a mechanic");
+        }
+
+        using (var assignStep = await app.Client.PutAsJsonAsync(
+                   $"/api/appointments/{booking.Id}/mechanic",
+                   new { mechanicId = app.DefaultMechanicId }))
+        {
+            await AssertStatusAsync(assignStep, HttpStatusCode.OK);
+        }
+
+        foreach (var nextStatus in new[] { "InProgress", "Completed" })
         {
             using var step = await app.Client.PostAsJsonAsync(
                 $"/api/appointments/{booking.Id}/status",
@@ -347,7 +372,15 @@ public sealed class BookingApiTests(BookingApiFactory app) : IClassFixture<Booki
 
         foreach (var bookingId in new[] { latest.Id, backfill.Id })
         {
-            foreach (var status in new[] { "Confirmed", "InProgress", "Completed" })
+            using (var confirmStep = await app.Client.PostAsJsonAsync(
+                       $"/api/appointments/{bookingId}/status",
+                       new { status = "Confirmed" }))
+                await AssertStatusAsync(confirmStep, HttpStatusCode.OK);
+            using (var assignStep = await app.Client.PutAsJsonAsync(
+                       $"/api/appointments/{bookingId}/mechanic",
+                       new { mechanicId = app.DefaultMechanicId }))
+                await AssertStatusAsync(assignStep, HttpStatusCode.OK);
+            foreach (var status in new[] { "InProgress", "Completed" })
             {
                 using var step = await app.Client.PostAsJsonAsync(
                     $"/api/appointments/{bookingId}/status",

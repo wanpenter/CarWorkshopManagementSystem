@@ -26,6 +26,13 @@ public sealed class MechanicRepository(CarWorkshopDbContext context)
             cancellationToken);
     }
 
+    public Task<int> CountActiveAsync(CancellationToken cancellationToken = default)
+    {
+        return context.Mechanics.CountAsync(
+            mechanic => mechanic.IsActive,
+            cancellationToken);
+    }
+
     public Task AddAsync(
         Mechanic mechanic,
         CancellationToken cancellationToken = default)

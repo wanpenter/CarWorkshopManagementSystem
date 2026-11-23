@@ -130,7 +130,7 @@ public sealed class AppointmentService(
         var day = ValidateWorkingHours(appointment);
         return await appointments.WithDayLockAsync(day, async () =>
         {
-            await ValidateCapacityAsync(appointment, null, cancellationToken);
+            await ValidateCapacityAsync(appointment, null, checkMechanicCapacity: true, cancellationToken);
             await appointments.AddAsync(appointment, cancellationToken);
             await unitOfWork.SaveChangesAsync(cancellationToken);
             await auditLogs.RecordAsync(
@@ -163,6 +163,8 @@ public sealed class AppointmentService(
             appointment.Services.Select(item => item.ServiceId).ToArray(), cancellationToken);
         var day = DateOnly.FromDateTime(command.ScheduledAtUtc.Add(MalaysiaOffset));
         var oldStatus = appointment.Status;
+        var oldStartUtc = appointment.ScheduledAtUtc;
+        var oldEndUtc = appointment.EstimatedEndUtc;
         var oldValues = AppointmentSnapshot(appointment);
         return await appointments.WithDayLockAsync(day, async () =>
         {
@@ -179,7 +181,10 @@ public sealed class AppointmentService(
             ValidateWorkingHours(appointment);
             if (ConsumesCapacity(appointment.Status))
             {
-                await ValidateCapacityAsync(appointment, id, cancellationToken);
+                var scheduleOrCapacityChanged = !ConsumesCapacity(oldStatus) ||
+                    appointment.ScheduledAtUtc != oldStartUtc ||
+                    appointment.EstimatedEndUtc != oldEndUtc;
+                await ValidateCapacityAsync(appointment, id, scheduleOrCapacityChanged, cancellationToken);
                 await ValidateMechanicScheduleAsync(appointment, cancellationToken);
             }
             var statusChanged = oldStatus != appointment.Status;
@@ -377,6 +382,7 @@ public sealed class AppointmentService(
     }
 
     private async Task ValidateCapacityAsync(Appointment proposed, int? ownId,
+        bool checkMechanicCapacity,
         CancellationToken cancellationToken)
     {
         var dayStartUtc = proposed.ScheduledAtUtc.Add(MalaysiaOffset).Date.Subtract(MalaysiaOffset);
@@ -388,6 +394,54 @@ public sealed class AppointmentService(
             item.ScheduledAtUtc < proposed.EstimatedEndUtc &&
             (item.EstimatedEndUtc ?? item.ScheduledAtUtc.AddMinutes(30)) > proposed.ScheduledAtUtc))
             throw new ConflictException("This vehicle already has an overlapping booking.");
+        if (checkMechanicCapacity)
+        {
+            var activeMechanicCount = await mechanics.CountActiveAsync(cancellationToken);
+            if (activeMechanicCount == 0)
+                throw new ConflictException(
+                    "No active mechanics are available to accept bookings right now.");
+            if (PeakConcurrentBookings(proposed, active) > activeMechanicCount)
+                throw new ConflictException(
+                    $"All {activeMechanicCount} active {(activeMechanicCount == 1 ? "mechanic is" : "mechanics are")} already booked during this time slot. Choose another time.");
+        }
+    }
+
+    private static int PeakConcurrentBookings(Appointment proposed, IReadOnlyList<Appointment> activeBookings)
+    {
+        var proposedStart = proposed.ScheduledAtUtc;
+        var proposedEnd = proposed.EstimatedEndUtc ?? proposedStart.AddMinutes(30);
+        var events = new List<(DateTime Time, int Delta)>
+        {
+            (proposedStart, 1),
+            (proposedEnd, -1)
+        };
+
+        foreach (var booking in activeBookings)
+        {
+            var start = booking.ScheduledAtUtc;
+            var end = booking.EstimatedEndUtc ?? start.AddMinutes(30);
+            if (start < proposedEnd && end > proposedStart)
+            {
+                events.Add((start, 1));
+                events.Add((end, -1));
+            }
+        }
+
+        events.Sort((a, b) =>
+        {
+            var timeComparison = a.Time.CompareTo(b.Time);
+            return timeComparison != 0 ? timeComparison : a.Delta.CompareTo(b.Delta);
+        });
+
+        var current = 0;
+        var peak = 0;
+        foreach (var (_, delta) in events)
+        {
+            current += delta;
+            if (current > peak) peak = current;
+        }
+
+        return peak;
     }
 
     private static bool ConsumesCapacity(AppointmentStatus status) =>
