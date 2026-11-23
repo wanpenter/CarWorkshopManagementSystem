@@ -11,8 +11,9 @@ capacity, status transitions, and overlapping vehicle/mechanic scheduling rules.
 Appointment times are stored in UTC and displayed in Malaysia time. Service
 names, prices, and durations are retained as booking snapshots. Admin and Staff
 login accounts use protected cookies and server-enforced access. Admins manage
-login accounts; all users can change their own passwords. Invoicing, payments,
-and separate actual-service-history records are not implemented.
+login accounts; all users can change their own passwords. Staff and Admin can
+record actual work and mileage after a booking is completed and review the
+vehicle's service history. Invoicing and payments are not implemented.
 
 The frontend redesign is a working draft for user review, using the supplied
 admin-dashboard image as visual direction. Existing record operations must

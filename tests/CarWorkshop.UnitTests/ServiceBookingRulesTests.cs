@@ -45,9 +45,9 @@ public sealed class ServiceBookingRulesTests
         var service = new Service("Inspection", null, 80m, 60);
         var booking = Appointment.CreateBooking(1, 2, StartUtc, [service], null, NowUtc);
 
-        Assert.Throws<InvalidOperationException>(() => booking.UpdateBooking(
-            1, 2, StartUtc, [service], null, AppointmentStatus.InProgress, NowUtc));
-
+        Assert.Throws<InvalidOperationException>(() =>
+        
+        booking.UpdateBooking( 1, 2, StartUtc, [service], null, AppointmentStatus.InProgress, NowUtc));
         booking.UpdateBooking(1, 2, StartUtc, [service], null, AppointmentStatus.Confirmed, NowUtc);
         booking.UpdateBooking(1, 2, StartUtc, [service], null, AppointmentStatus.InProgress, StartUtc);
         booking.UpdateBooking(1, 2, StartUtc, [service], null, AppointmentStatus.Completed, StartUtc.AddHours(2));

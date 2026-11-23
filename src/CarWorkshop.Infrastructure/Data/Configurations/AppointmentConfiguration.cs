@@ -11,6 +11,16 @@ internal sealed class AppointmentConfiguration : IEntityTypeConfiguration<Appoin
         builder.ToTable("Appointments");
         builder.HasKey(appointment => appointment.Id);
 
+        builder.OwnsOne(appointment => appointment.ServiceRecord, record =>
+        {
+            record.ToTable("ServiceRecords");
+            record.WithOwner().HasForeignKey("AppointmentId");
+            record.HasKey("AppointmentId");
+            record.Property(item => item.WorkPerformed).HasMaxLength(ServiceRecord.MaxWorkLength).IsRequired();
+            record.Property(item => item.RecordedAtUtc)
+                .HasConversion(value => value, value => DateTime.SpecifyKind(value, DateTimeKind.Utc));
+        });
+
         builder.Property(appointment => appointment.ScheduledAtUtc)
             .HasConversion(
                 value => value,

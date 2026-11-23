@@ -208,6 +208,71 @@ public sealed class BookingApiTests(BookingApiFactory app) : IClassFixture<Booki
         Assert.Equal(2, await app.CountBookingsAsync(scenario.CustomerId));
     }
 
+    [Fact]
+    public async Task Staff_can_record_service_once_after_completion_and_read_it_back()
+    {
+        var scenario = await app.SeedAsync(vehicleCount: 2);
+        var booking = await CreateAsync(scenario);
+        var unrelated = await CreateAsync(scenario, vehicleIndex: 1);
+        var account = await app.CreateAccountAsync();
+        using var staff = await app.LoginAsync(account.Username, account.Password);
+        var appointmentUrl = $"/api/appointments/{booking.Id}";
+        var recordUrl = $"{appointmentUrl}/service-record";
+        var extra = await app.SeedAsync();
+        var serviceRecord = new { mileage = 82450, serviceIds = new[] { scenario.ServiceId, extra.ServiceId } };
+
+        using var anonymous = app.CreateAnonymousClient();
+        await app.RefreshCsrfAsync(anonymous);
+        using var unauthorized = await anonymous.PostAsJsonAsync(recordUrl, serviceRecord);
+        await AssertStatusAsync(unauthorized, HttpStatusCode.Unauthorized);
+
+        using var early = await staff.PostAsJsonAsync(recordUrl, serviceRecord);
+        await AssertConflictAsync(early, "Complete the appointment");
+        foreach (var status in new[] { "Confirmed", "InProgress", "Completed" })
+        {
+            using var updated = await staff.PutAsJsonAsync(appointmentUrl, scenario.Update(status));
+            await AssertStatusAsync(updated, HttpStatusCode.OK);
+        }
+
+        using var invalid = await staff.PostAsJsonAsync(recordUrl, new { mileage = -1, serviceRecord.serviceIds });
+        await AssertValidationAsync(invalid, "mileage");
+        using var blank = await staff.PostAsJsonAsync(recordUrl, new { serviceRecord.mileage, workPerformed = " " });
+        await AssertValidationAsync(blank, "serviceIds");
+        using var unknown = await staff.PostAsJsonAsync(recordUrl, new { serviceRecord.mileage, serviceIds = new[] { int.MaxValue } });
+        await AssertValidationAsync(unknown, "serviceIds");
+        using var rename = await app.Client.PutAsJsonAsync($"/api/services/{scenario.ServiceId}", new
+        {
+            Name = "Renamed after booking", CurrentPrice = 120.50m, EstimatedDurationMinutes = 60, IsActive = false
+        });
+        await AssertStatusAsync(rename, HttpStatusCode.OK);
+
+        var submissions = await Task.WhenAll(staff.PostAsJsonAsync(recordUrl, serviceRecord),
+            staff.PostAsJsonAsync(recordUrl, serviceRecord));
+        try
+        {
+            Assert.Single(submissions, response => response.StatusCode == HttpStatusCode.OK);
+            await AssertConflictAsync(Assert.Single(submissions, response => response.StatusCode == HttpStatusCode.Conflict),
+                "already has a service record");
+        }
+        finally
+        {
+            foreach (var submission in submissions) submission.Dispose();
+        }
+
+        using var duplicate = await staff.PostAsJsonAsync(recordUrl, new { mileage = 999, workPerformed = "Overwrite attempt" });
+        await AssertConflictAsync(duplicate, "already has a service record");
+
+        var results = await staff.GetFromJsonAsync<AppointmentDetails[]>("/api/appointments");
+        Assert.NotNull(results);
+        var saved = Assert.Single(results, result => result.Id == booking.Id);
+        Assert.Equal(scenario.VehicleIds[0], saved.VehicleId);
+        Assert.NotNull(saved.ServiceRecord);
+        Assert.Equal(82450, saved.ServiceRecord.Mileage);
+        Assert.Equal($"{scenario.ServiceName}\n{extra.ServiceName}", saved.ServiceRecord.WorkPerformed);
+        Assert.Equal(DateTimeKind.Utc, saved.ServiceRecord.RecordedAtUtc.Kind);
+        Assert.Null(Assert.Single(results, result => result.Id == unrelated.Id).ServiceRecord);
+    }
+
     private async Task<AppointmentDetails> CreateAsync(BookingScenario scenario,
         int vehicleIndex = 0, DateTime? startUtc = null)
     {

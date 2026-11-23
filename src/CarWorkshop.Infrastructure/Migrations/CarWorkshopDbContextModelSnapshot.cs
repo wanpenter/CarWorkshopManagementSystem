@@ -378,9 +378,35 @@ namespace CarWorkshop.Infrastructure.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
+                    b.OwnsOne("CarWorkshop.Domain.Entities.ServiceRecord", "ServiceRecord", b1 =>
+                        {
+                            b1.Property<int>("AppointmentId")
+                                .HasColumnType("int");
+
+                            b1.Property<int>("Mileage")
+                                .HasColumnType("int");
+
+                            b1.Property<DateTime>("RecordedAtUtc")
+                                .HasColumnType("datetime(6)");
+
+                            b1.Property<string>("WorkPerformed")
+                                .IsRequired()
+                                .HasMaxLength(2000)
+                                .HasColumnType("varchar(2000)");
+
+                            b1.HasKey("AppointmentId");
+
+                            b1.ToTable("ServiceRecords", (string)null);
+
+                            b1.WithOwner()
+                                .HasForeignKey("AppointmentId");
+                        });
+
                     b.Navigation("Customer");
 
                     b.Navigation("Mechanic");
+
+                    b.Navigation("ServiceRecord");
 
                     b.Navigation("Vehicle");
                 });

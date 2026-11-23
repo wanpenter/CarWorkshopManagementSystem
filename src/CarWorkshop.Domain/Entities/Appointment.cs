@@ -53,6 +53,18 @@ public sealed class Appointment
 
     public DateTime CreatedAt { get; private set; }
 
+    public ServiceRecord? ServiceRecord { get; private set; }
+
+    public void RecordService(int mileage, string workPerformed, DateTime recordedAtUtc)
+    {
+        if (Status != AppointmentStatus.Completed)
+            throw new InvalidOperationException("Complete the appointment before recording service.");
+        if (ServiceRecord is not null)
+            throw new InvalidOperationException("This appointment already has a service record.");
+
+        ServiceRecord = new ServiceRecord(mileage, workPerformed, EnsureUtc(recordedAtUtc, nameof(recordedAtUtc)));
+    }
+
     public static Appointment Create(
         int customerId,
         int vehicleId,

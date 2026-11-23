@@ -104,8 +104,15 @@ assigning staff. The API rejects overlapping jobs and the editor displays the
 conflict while keeping the booking open. Assigned names appear in the appointment
 list and remain visible in completed records.
 
-Login and Admin/Staff access control protect the API and frontend. Actual service
-history remains a later module. Configure the first Admin before normal use.
+Login and Admin/Staff access control protect the API and frontend. Configure the
+first Admin before normal use.
+
+After completing an appointment, open it and select **Record service**. Enter the
+mileage and tick the services performed. Choose additional services from the
+catalogue or describe other work in the optional notes. Both Staff and Admin can save one
+record per completed appointment. In **Vehicles**, select **History** on a vehicle
+row to view its **Service history**. Earlier completed appointments can receive records too. Apply
+the `AddServiceRecords` migration before starting this version of the API.
 
 ## Verify
 

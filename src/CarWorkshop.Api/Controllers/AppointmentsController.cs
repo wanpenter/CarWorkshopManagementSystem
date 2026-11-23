@@ -82,6 +82,16 @@ public sealed class AppointmentsController : ControllerBase
         return Ok(await _appointments.AssignMechanicAsync(id, request.MechanicId, cancellationToken));
     }
 
+    [HttpPost("{id:int}/service-record")]
+    public async Task<ActionResult<AppointmentDetails>> RecordService(
+        int id,
+        RecordServiceRequest request,
+        CancellationToken cancellationToken)
+    {
+        return Ok(await _appointments.RecordServiceAsync(
+            id, request.Mileage!.Value, request.ServiceIds, request.Notes, request.WorkPerformed, cancellationToken));
+    }
+
     private static AppointmentStatus? ParseOptionalStatus(string? value)
     {
         if (string.IsNullOrWhiteSpace(value))

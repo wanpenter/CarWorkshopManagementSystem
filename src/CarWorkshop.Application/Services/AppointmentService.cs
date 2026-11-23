@@ -118,6 +118,57 @@ public sealed class AppointmentService(
         }, cancellationToken);
     }
 
+    public Task<AppointmentDetails> RecordServiceAsync(int appointmentId, int mileage,
+        IReadOnlyList<int> serviceIds, string? notes, string? workPerformed,
+        CancellationToken cancellationToken = default) =>
+        appointments.WithSchedulingLockAsync(async () =>
+        {
+            var appointment = await FindAppointmentAsync(appointmentId, cancellationToken);
+            var summary = await BuildServiceSummaryAsync(appointment, serviceIds, notes, workPerformed, cancellationToken);
+            try
+            {
+                appointment.RecordService(mileage, summary, timeProvider.GetUtcNow().UtcDateTime);
+            }
+            catch (InvalidOperationException exception)
+            {
+                throw new ConflictException(exception.Message);
+            }
+
+            await unitOfWork.SaveChangesAsync(cancellationToken);
+            return ToDetails(appointment);
+        }, cancellationToken);
+
+    private async Task<string> BuildServiceSummaryAsync(Appointment appointment, IReadOnlyList<int> serviceIds,
+        string? notes, string? workPerformed, CancellationToken cancellationToken)
+    {
+        if (serviceIds.Count == 0)
+        {
+            var description = notes?.Trim();
+            if (!string.IsNullOrEmpty(description)) return description;
+            if (!string.IsNullOrWhiteSpace(workPerformed)) return workPerformed;
+            throw new ArgumentException("Choose a service or describe other work in Notes.", nameof(serviceIds));
+        }
+
+        if (serviceIds.Any(id => id <= 0) || serviceIds.Distinct().Count() != serviceIds.Count)
+            throw new ArgumentException("Choose each service only once.", nameof(serviceIds));
+
+        var names = appointment.Services.ToDictionary(item => item.ServiceId, item => item.Name);
+        var extraIds = serviceIds.Where(id => !names.ContainsKey(id)).ToArray();
+        if (extraIds.Length > 0)
+        {
+            var extras = await services.GetByIdsAsync(extraIds, cancellationToken);
+            if (extras.Count != extraIds.Length || extras.Any(service => !service.IsActive))
+                throw new ArgumentException("Choose additional work from active catalogue services.", nameof(serviceIds));
+            foreach (var service in extras) names.Add(service.Id, service.Name);
+        }
+
+        var summary = string.Join("\n", serviceIds.Select(id => names[id]));
+        if (!string.IsNullOrWhiteSpace(notes)) summary += $"\n\nNotes: {notes.Trim()}";
+        if (summary.Length > ServiceRecord.MaxWorkLength)
+            throw new ArgumentException("The selected services and notes are too long. Shorten the notes or reduce the selection.", nameof(serviceIds));
+        return summary;
+    }
+
     private async Task ValidateMechanicScheduleAsync(Appointment proposed,
         CancellationToken cancellationToken)
     {
@@ -204,5 +255,8 @@ public sealed class AppointmentService(
             appointment.Services.Select(item => new AppointmentServiceDetails(item.ServiceId,
                 item.Name, item.Price, item.DurationMinutes)).ToArray(),
             appointment.Notes, appointment.Status.ToString(), appointment.CreatedAt,
-            appointment.MechanicId, appointment.Mechanic?.FullName);
+            appointment.MechanicId, appointment.Mechanic?.FullName,
+            appointment.ServiceRecord is { } record
+                ? new ServiceRecordDetails(record.Mileage, record.WorkPerformed, record.RecordedAtUtc)
+                : null);
 }

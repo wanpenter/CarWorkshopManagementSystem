@@ -25,6 +25,9 @@ public sealed record AppointmentDetails(
     string Status,
     DateTime CreatedAt,
     int? MechanicId = null,
-    string? MechanicName = null);
+    string? MechanicName = null,
+    ServiceRecordDetails? ServiceRecord = null);
+
+public sealed record ServiceRecordDetails(int Mileage, string WorkPerformed, DateTime RecordedAtUtc);
 
 public sealed record AppointmentServiceDetails(int ServiceId, string Name, decimal Price, int DurationMinutes);
