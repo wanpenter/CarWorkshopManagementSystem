@@ -1,58 +1,23 @@
 .auth-screen {
   min-height: 100dvh;
   display: grid;
-  grid-template-columns: minmax(21rem, 1fr) minmax(26rem, 0.9fr);
+  grid-template-rows: auto 1fr;
   background: var(--color-paper);
-}
-
-.auth-brand-panel {
-  min-height: 100dvh;
-  display: flex;
-  flex-direction: column;
-  padding: clamp(2rem, 5vw, 5.5rem);
-  border-right: 1px solid var(--color-paper-line);
-  background: #fff;
 }
 
 .auth-brand-lockup {
   display: flex;
   align-items: center;
-  gap: 0.8rem;
+  min-height: 4rem;
+  padding-inline: clamp(1.25rem, 5vw, 4rem);
+  border-bottom: 1px solid var(--color-paper-line);
+  background: #fff;
   font-size: 1.05rem;
   font-weight: 750;
   letter-spacing: -0.025em;
 }
 
-.auth-brand-copy {
-  width: min(100%, 38rem);
-  margin: auto 0;
-  padding-block: 4rem;
-}
-
-.auth-brand-copy h1 {
-  margin: 0;
-  max-width: 15ch;
-  font-size: clamp(2.25rem, 5vw, 4.5rem);
-  line-height: 1.02;
-  letter-spacing: -0.03em;
-  text-wrap: balance;
-}
-
-.auth-brand-copy > p:last-child {
-  max-width: 52ch;
-  margin: 1.45rem 0 0;
-  color: var(--color-ink-soft);
-  font-size: 1rem;
-}
-
-.auth-brand-footnote {
-  margin: 0;
-  color: var(--color-ink-soft);
-  font-size: 0.75rem;
-}
-
 .auth-entry-panel {
-  min-height: 100dvh;
   display: grid;
   place-items: center;
   padding: clamp(1.25rem, 5vw, 4rem);
@@ -68,11 +33,10 @@
 }
 
 .auth-card-heading {
-  margin-bottom: 2rem;
+  margin-bottom: 1.5rem;
 }
 
-.auth-card h2,
-.auth-state h2 {
+.auth-card h1 {
   margin: 0;
   font-size: clamp(1.55rem, 4vw, 2rem);
   line-height: 1.2;
@@ -186,11 +150,19 @@
   width: 100%;
 }
 
+.auth-sign-in-help {
+  margin-top: 1.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--color-paper-line);
+  color: var(--color-ink-soft);
+  font-size: 0.875rem;
+}
+
 .auth-settings-link {
   display: block;
   min-height: 2.75rem;
-  margin: 1rem auto -0.5rem;
-  padding: 0.5rem;
+  margin: 0 0 -0.5rem;
+  padding: 0.5rem 0;
   border: 0;
   background: transparent;
   color: var(--color-ink-soft);
@@ -349,16 +321,6 @@
   .users-workspace { grid-template-columns: minmax(0, 1fr) 24rem; }
 }
 
-@media (max-width: 54rem) {
-  .auth-screen { grid-template-columns: minmax(0, 1fr); }
-  .auth-brand-panel { min-height: auto; padding: 1.35rem; border-right: 0; border-bottom: 1px solid var(--color-paper-line); }
-  .auth-brand-copy { margin: 2.5rem 0 0; padding: 0; }
-  .auth-brand-copy h1 { max-width: 20ch; font-size: clamp(2rem, 9vw, 3.2rem); }
-  .auth-brand-copy > p:last-child { margin-top: 1rem; }
-  .auth-brand-footnote { display: none; }
-  .auth-entry-panel { min-height: auto; padding: 1.35rem; }
-}
-
 @media (max-width: 40rem) {
   .header-tools [role="status"] { display: none; }
   .header-location { min-width: 0; }
@@ -368,7 +330,7 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  .auth-entry-panel { padding: 1rem; }
+  .auth-entry-panel { align-items: start; padding: 1rem; }
   .auth-card { padding: 1.25rem; box-shadow: none; }
   .auth-actions > *,
   .auth-editor-actions > * { width: 100%; }

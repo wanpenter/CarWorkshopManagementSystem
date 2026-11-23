@@ -486,3 +486,7 @@ $RECYCLE.BIN/
 # Local database backup artifacts
 .local-backups/
 .build-temp/
+
+# Local preview exports and scratch screenshots
+sites/
+Screenshot *.png

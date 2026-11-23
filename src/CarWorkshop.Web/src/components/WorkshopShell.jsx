@@ -7,7 +7,7 @@ const workshopSections = [
   ["vehicles", "Vehicles"], ["services", "Services"], ["mechanics", "Mechanics"]
 ];
 
-export default function WorkshopShell({ user, onLogout, activeTab, counts, status, mutating, onNavigate, onOpenSettings, children }) {
+export default function WorkshopShell({ user, onLogout, signingOut = false, activeTab, counts, status, mutating, onNavigate, onOpenSettings, children }) {
   const sections = [...workshopSections, ...(user?.role === "Admin" ? [["users", "User accounts"]] : []), ["account", "My account"]];
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef(null);
@@ -30,7 +30,7 @@ export default function WorkshopShell({ user, onLogout, activeTab, counts, statu
   return <div className="workshop-shell">
     <a className="skip-link" href="#main-content">Skip to workshop records</a>
     <aside className={`sidebar ${menuOpen ? "is-open" : ""}`} id="workshop-sidebar">
-      <a className="brand" href="#dashboard" onClick={(event) => { event.preventDefault(); navigate("dashboard"); }} aria-label="Workshop Registry dashboard"><span>Workshop<span className="brand-accent">Registry</span></span></a>
+      <a className="brand" href="#dashboard" onClick={(event) => { event.preventDefault(); navigate("dashboard"); }} aria-label="TorquePro dashboard"><span>Torque<span className="brand-accent">Pro</span></span></a>
       <div className="sidebar-caption">Workshop management</div>
       <nav className="section-nav" aria-label="Workshop records">{sections.map(([id, label]) => <button key={id} id={`${id}-nav`} className="section-tab" type="button" aria-current={activeTab === id ? "page" : undefined} onClick={() => navigate(id)}><WorkshopIcon name={id} /><span>{label}</span>{counts[id] !== undefined && <span className="tab-count">{counts[id]}</span>}</button>)}</nav>
       <div className="sidebar-footer"><span className="sidebar-footer-dot" /><div><strong>{user?.fullName}</strong><span>{user?.role} account</span></div></div>
@@ -38,11 +38,11 @@ export default function WorkshopShell({ user, onLogout, activeTab, counts, statu
     <div className="app-surface">
       <header className="app-header">
         <div className="header-location"><button ref={menuRef} className="menu-toggle" type="button" aria-label={menuOpen ? "Close navigation" : "Open navigation"} aria-controls="workshop-sidebar" aria-expanded={menuOpen} onClick={() => setMenuOpen((open) => !open)}><WorkshopIcon name={menuOpen ? "close" : "menu"} /></button><span className="header-workspace">Workshop</span><span className="breadcrumb-divider">/</span><strong>{title}</strong></div>
-        <div className="header-tools"><ConnectionStatus status={status} /><button className="header-settings" type="button" onClick={onOpenSettings} disabled={mutating}><WorkshopIcon name="settings" /><span>API settings</span></button><button className="header-settings" type="button" disabled={mutating} onClick={onLogout}>Sign out</button></div>
+        <div className="header-tools"><ConnectionStatus status={status} /><button className="header-settings" type="button" onClick={onOpenSettings} disabled={mutating} title={mutating ? "Wait for the current change to finish" : undefined}><WorkshopIcon name="settings" /><span>API settings</span></button><button className="header-settings" type="button" disabled={mutating} title={mutating ? "Wait for the current change to finish" : undefined} onClick={onLogout}>{signingOut ? "Signing out..." : "Sign out"}</button></div>
       </header>
       <div className="workspace-context"><span>Workshop operations</span><time dateTime={new Date().toISOString()}>{new Intl.DateTimeFormat("en-MY", { weekday: "long", day: "numeric", month: "long", year: "numeric", timeZone: "Asia/Kuala_Lumpur" }).format(new Date())} <span className="date-zone">MYT</span></time></div>
       {children}
-      <footer className="app-footer"><span>Workshop Registry</span><span>Car Workshop Management System V2</span></footer>
+      <footer className="app-footer"><span>TorquePro</span><span>Car Workshop Management System V2</span></footer>
     </div>
   </div>;
 }

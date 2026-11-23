@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { ApiError, getProblemFieldErrors } from "../api.js";
 
 const EMPTY_ERRORS = Object.freeze({ username: "", password: "", form: "" });
@@ -54,10 +54,6 @@ export default function LoginScreen({
   const usernameRef = useRef(null);
   const passwordRef = useRef(null);
 
-  useEffect(() => {
-    if (status === "signedOut") usernameRef.current?.focus();
-  }, [status]);
-
   const working = busy || submitting;
 
   async function handleSubmit(event) {
@@ -101,31 +97,21 @@ export default function LoginScreen({
 
   return (
     <main className="auth-screen">
-      <section className="auth-brand-panel" aria-labelledby="auth-brand-title">
-        <div className="auth-brand-lockup">
-          <span>Workshop Registry</span>
-        </div>
-        <div className="auth-brand-copy">
-          <h1 id="auth-brand-title">Run the day from one clear workspace.</h1>
-          <p>Manage customer records, vehicles, appointments, services, and mechanic assignments.</p>
-        </div>
-        <p className="auth-brand-footnote">Authorised workshop staff only</p>
-      </section>
+      <header className="auth-brand-lockup">TorquePro</header>
 
-      <section className="auth-entry-panel" aria-live="polite">
+      <div className="auth-entry-panel">
         <div className="auth-card">
           {isChecking && (
             <div className="auth-state" role="status">
               <div className="auth-loading-line" aria-hidden="true" />
-              <h2>Checking your session</h2>
-              <p>We are preparing your workshop workspace.</p>
+              <h1>Checking your session</h1>
             </div>
           )}
 
           {isConnectionError && (
             <div className="auth-state auth-error-state" role="alert">
               <span className="auth-state-symbol" aria-hidden="true">!</span>
-              <h2>We could not reach the workshop system</h2>
+              <h1>Cannot connect to TorquePro</h1>
               <p>{errorMessage || "Check that the service is available, then try again."}</p>
               <div className="auth-actions">
                 <button type="button" className="button button-primary" disabled={busy} onClick={onRetry}>
@@ -141,8 +127,8 @@ export default function LoginScreen({
           {!isChecking && !isConnectionError && (
             <>
               <div className="auth-card-heading">
-                <h2>Sign in to your workspace</h2>
-                <p>Use the account issued by your workshop administrator.</p>
+                <h1>Sign in</h1>
+                <p>Use your workshop Staff or Admin account.</p>
               </div>
               {errorMessage && <p className="auth-field-help mb-4" role="status">{errorMessage}</p>}
               <form noValidate onSubmit={handleSubmit}>
@@ -189,13 +175,16 @@ export default function LoginScreen({
                   {working ? "Signing in..." : "Sign in"}
                 </button>
               </form>
-              <button type="button" className="auth-settings-link" disabled={working} onClick={onOpenSettings}>
-                Having trouble connecting? Open API settings
-              </button>
+              <div className="auth-sign-in-help">
+                <p>Need an account or a password reset? Ask your workshop admin.</p>
+                <button type="button" className="auth-settings-link" disabled={working} onClick={onOpenSettings}>
+                  API settings
+                </button>
+              </div>
             </>
           )}
         </div>
-      </section>
+      </div>
     </main>
   );
 }
