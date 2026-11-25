@@ -1,9 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import AppointmentWorkflow from "./AppointmentWorkflow.jsx";
+import { AppointmentInvoicePanel, AppointmentPartsPanel } from "./AppointmentBillingPanels.jsx";
 import MechanicAssignment from "./MechanicAssignment.jsx";
 import { AppointmentServiceRecord } from "./ServiceRecord.jsx";
+import SlotPicker from "./SlotPicker.jsx";
 import {
   APPOINTMENT_STATUSES,
+  PAYMENT_STATUS_LABELS,
   appointmentEstimate,
   getProblemFieldErrors,
   toWorkshopDateTimeInput,
@@ -95,17 +98,22 @@ const bookedServices = (appointment) => appointment.services?.length
 
 export default function AppointmentsSection({
   active,
+  api,
   connectionStatus,
   errorMessage,
   customers,
   vehicles,
   appointments,
   services,
+  parts = [],
   mechanics,
   preset,
   onAssignMechanic,
   onTransitionStatus,
   onRecordService,
+  onAddPart,
+  onRemovePart,
+  onRecordPayment,
   onOpenReceipt,
   onAddMechanic,
   busy,
@@ -552,6 +560,24 @@ export default function AppointmentsSection({
                 <AppointmentServiceRecord key={selectedAppointment.id} appointment={selectedAppointment} services={services}
                   disabled={connectionStatus !== "ready" || busy} onSave={onRecordService} />
               )}
+              {selectedAppointment && ["InProgress", "Completed"].includes(selectedAppointment.status) && (
+                <AppointmentPartsPanel
+                  key={`parts-${selectedAppointment.id}`}
+                  appointment={selectedAppointment}
+                  parts={parts}
+                  disabled={connectionStatus !== "ready" || busy}
+                  onAddPart={onAddPart}
+                  onRemovePart={onRemovePart}
+                />
+              )}
+              {selectedAppointment?.status === "Completed" && (
+                <AppointmentInvoicePanel
+                  key={`invoice-${selectedAppointment.id}`}
+                  appointment={selectedAppointment}
+                  disabled={connectionStatus !== "ready" || busy}
+                  onRecordPayment={onRecordPayment}
+                />
+              )}
               <form onSubmit={submitAppointment} noValidate>
                 <fieldset disabled={connectionStatus !== "ready" || busy || terminalAppointment} className="m-0 min-w-0 border-0 p-0">
                   <SelectField ref={customerRef} id="customerId" label="Customer" value={form.customerId} error={errors.customerId} onChange={updateField}>
@@ -566,6 +592,20 @@ export default function AppointmentsSection({
                       return <option key={vehicle.id} value={vehicle.id}>{label}</option>;
                     })}
                   </SelectField>
+                  {!terminalAppointment && api && connectionStatus === "ready" && (
+                    <SlotPicker
+                      api={api}
+                      mode="workshop"
+                      value={form.scheduledAtLocal}
+                      onChange={(nextValue) => updateField("scheduledAtLocal", nextValue)}
+                      durationMinutes={totalMinutes}
+                      vehicleId={form.vehicleId}
+                      excludeAppointmentId={selectedId}
+                      disabled={connectionStatus !== "ready" || busy || terminalAppointment}
+                      idPrefix="staff-slot"
+                      refreshKey={appointments.length}
+                    />
+                  )}
                   <TextField ref={dateRef} id="scheduledAtLocal" label="Date and time (MYT)" value={form.scheduledAtLocal} type="datetime-local" error={errors.scheduledAtLocal || errors.scheduledAtUtc} help="Workshop hours 8:30 AM–5:30 PM. Starts every 30 minutes." onChange={updateField} />
                   <fieldset className="mb-5 min-w-0 border-0 p-0" aria-describedby={errors.serviceIds ? "serviceIds-error" : undefined}>
                     <legend className="mb-2 font-bold">Services required</legend>
@@ -648,10 +688,19 @@ function AppointmentRecords(props) {
                 <TableCell className="max-w-68">
                   <span className="block">{bookedServices(appointment)}</span>
                   <span className="mt-0.5 block text-xs text-ink-soft">
-                    {appointment.services?.length ? `${appointment.services.reduce((sum, service) => sum + Number(service.durationMinutes || 0), 0)} min · ${money(appointment.services.reduce((sum, service) => sum + Number(service.price || 0), 0))}` : "Legacy booking"} · {appointment.mechanicName || "Unassigned"}
+                    {appointment.services?.length ? `${appointment.services.reduce((sum, service) => sum + Number(service.durationMinutes || 0), 0)} min · ${money(appointment.invoice ? appointment.invoice.totalAmount : appointment.services.reduce((sum, service) => sum + Number(service.price || 0), 0) + (appointment.partsUsed ?? []).reduce((sum, part) => sum + Number(part.lineTotal || 0), 0))}` : "Legacy booking"} · {appointment.mechanicName || "Unassigned"}
                   </span>
                 </TableCell>
-                <TableCell><span className={`status-text ${statusClasses[appointment.status] ?? "pill-muted"}`}>{statusLabels[appointment.status] ?? appointment.status}</span></TableCell>
+                <TableCell>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className={`status-text ${statusClasses[appointment.status] ?? "pill-muted"}`}>{statusLabels[appointment.status] ?? appointment.status}</span>
+                    {appointment.invoice && (
+                      <span className={`status-text ${appointment.invoice.paymentStatus === "Paid" ? "pill-success" : appointment.invoice.paymentStatus === "PartiallyPaid" ? "pill-teal" : "pill-rust"}`}>
+                        {PAYMENT_STATUS_LABELS[appointment.invoice.paymentStatus] ?? appointment.invoice.paymentStatus}
+                      </span>
+                    )}
+                  </div>
+                </TableCell>
                 <TableCell className="whitespace-nowrap"><AppointmentActions appointment={appointment} busy={busy} onEdit={onEdit} onOpenReceipt={onOpenReceipt} /></TableCell>
               </tr>
             ))}

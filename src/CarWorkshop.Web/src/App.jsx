@@ -10,6 +10,7 @@ import {
 import CustomersSection from "./components/CustomersSection.jsx";
 import AppointmentsSection from "./components/AppointmentsSection.jsx";
 import ServicesSection from "./components/ServicesSection.jsx";
+import PartsSection from "./components/PartsSection.jsx";
 import MechanicsSection from "./components/MechanicsSection.jsx";
 import { DeleteDialog, SettingsDialog } from "./components/Dialogs.jsx";
 import { Notice } from "./components/Shared.jsx";
@@ -22,6 +23,8 @@ import UsersSection from "./components/UsersSection.jsx";
 import AuditLogsSection from "./components/AuditLogsSection.jsx";
 import ServiceReceiptDialog from "./components/ServiceReceiptDialog.jsx";
 import CustomerPortal from "./components/CustomerPortal.jsx";
+import { WORKSHOP_PROFILE } from "./workshopProfile.js";
+import torqueProLogo from "./assets/torquepro-logo-light.png";
 import "./auth.css";
 
 function App() {
@@ -45,6 +48,7 @@ function App() {
   const [vehicles, setVehicles] = useState([]);
   const [appointments, setAppointments] = useState([]);
   const [services, setServices] = useState([]);
+  const [parts, setParts] = useState([]);
   const [mechanics, setMechanics] = useState([]);
   const [status, setStatus] = useState(apiBaseUrl ? "loading" : "disconnected");
   const [errorMessage, setErrorMessage] = useState("");
@@ -82,6 +86,7 @@ function App() {
     setVehicles([]);
     setAppointments([]);
     setServices([]);
+    setParts([]);
     setMechanics([]);
     setOwnerFilter("");
     setAppointmentPreset(null);
@@ -131,14 +136,15 @@ function App() {
     }
 
     try {
-      const [customerResult, vehicleResult, appointmentResult, serviceResult, mechanicResult] = await Promise.all([
+      const [customerResult, vehicleResult, appointmentResult, serviceResult, partResult, mechanicResult] = await Promise.all([
         api.getCustomers({ signal: controller.signal }),
         api.getVehicles({ signal: controller.signal }),
         api.getAppointments({ signal: controller.signal }),
         api.getServices({ signal: controller.signal }),
+        api.getParts({ signal: controller.signal }),
         api.getMechanics({ signal: controller.signal })
       ]);
-      if (![customerResult, vehicleResult, appointmentResult, serviceResult, mechanicResult].every(Array.isArray)) {
+      if (![customerResult, vehicleResult, appointmentResult, serviceResult, partResult, mechanicResult].every(Array.isArray)) {
         throw new Error("The API response did not contain complete workshop records.");
       }
       if (!mountedRef.current || activeLoadRef.current.revision !== revision) return { ok: false, stale: true };
@@ -146,6 +152,7 @@ function App() {
       setVehicles(vehicleResult);
       setAppointments(appointmentResult);
       setServices(serviceResult);
+      setParts(partResult);
       setMechanics(mechanicResult);
       setStatus("ready");
       setErrorMessage("");
@@ -159,6 +166,7 @@ function App() {
         setVehicles([]);
         setAppointments([]);
         setServices([]);
+        setParts([]);
         setMechanics([]);
         setStatus("error");
         setErrorMessage(error.message);
@@ -406,6 +414,71 @@ function App() {
     }
   }
 
+  async function savePart(id, values) {
+    if (!api || mutating) throw new Error("Another change is still in progress.");
+    setMutating(true);
+    try {
+      if (id === null) await api.addPart(values);
+      else await api.updatePart(id, values);
+      await refreshAfterWrite(id === null ? "Spare part added." : "Spare part updated.");
+    } finally {
+      if (mountedRef.current) setMutating(false);
+    }
+  }
+
+  async function adjustPartStock(id, payload) {
+    if (!api || mutating) throw new Error("Another change is still in progress.");
+    setMutating(true);
+    try {
+      await api.adjustPartStock(id, payload);
+      await refreshAfterWrite("Stock adjustment saved.");
+    } finally {
+      if (mountedRef.current) setMutating(false);
+    }
+  }
+
+  async function addAppointmentPart(appointmentId, payload) {
+    if (!api || mutating) throw new Error("Another change is still in progress.");
+    setMutating(true);
+    try {
+      const updated = await api.addAppointmentPart(appointmentId, payload);
+      if (mountedRef.current) {
+        setAppointments((current) => current.map((item) => item.id === updated.id ? updated : item));
+      }
+      await refreshAfterWrite("Spare part added to job.");
+    } finally {
+      if (mountedRef.current) setMutating(false);
+    }
+  }
+
+  async function removeAppointmentPart(appointmentId, partLineId) {
+    if (!api || mutating) throw new Error("Another change is still in progress.");
+    setMutating(true);
+    try {
+      const updated = await api.removeAppointmentPart(appointmentId, partLineId);
+      if (mountedRef.current) {
+        setAppointments((current) => current.map((item) => item.id === updated.id ? updated : item));
+      }
+      await refreshAfterWrite("Spare part removed and stock restored.");
+    } finally {
+      if (mountedRef.current) setMutating(false);
+    }
+  }
+
+  async function recordAppointmentPayment(appointmentId, payload) {
+    if (!api || mutating) throw new Error("Another change is still in progress.");
+    setMutating(true);
+    try {
+      const updated = await api.recordAppointmentPayment(appointmentId, payload);
+      if (mountedRef.current) {
+        setAppointments((current) => current.map((item) => item.id === updated.id ? updated : item));
+      }
+      await refreshAfterWrite("Payment recorded.");
+    } finally {
+      if (mountedRef.current) setMutating(false);
+    }
+  }
+
   function openSettings(event) {
     if (mutating) return;
     settingsTriggerRef.current = event?.currentTarget ?? null;
@@ -516,22 +589,31 @@ function App() {
     <>
       {sessionUser && authStatus === "ready" ? (
         portalMismatch ? (
-          <main className="auth-screen">
-            <header className="auth-brand-lockup">
-              <span>Torque<span className="brand-accent">Pro</span></span>
-              <span className={`auth-portal-pill ${portalRoute === "staff" ? "is-staff" : ""}`}>
-                {portalRoute === "staff" ? "Staff & Admin Portal" : "Customer Portal"}
-              </span>
+          <div className={`auth-screen ${portalRoute === "staff" ? "is-staff" : "is-customer"}`}>
+            <a className="skip-link" href="#main-content">Skip to portal notice</a>
+            <header className="auth-navbar">
+              <div className="auth-navbar-brand">
+                <span className="auth-wordmark">
+                  Torque<span className="auth-wordmark-accent">Pro</span>
+                </span>
+                <span className="auth-wordmark-divider" aria-hidden="true" />
+                <img
+                  src={torqueProLogo}
+                  alt=""
+                  aria-hidden="true"
+                  className="auth-brand-logo"
+                />
+              </div>
             </header>
-            <div className="auth-entry-panel">
+            <main id="main-content" className="auth-entry-panel" tabIndex={-1}>
               <div className={`auth-card ${portalRoute === "staff" ? "is-staff" : ""}`}>
                 <div className="auth-state" role="alert">
                   <span className="auth-state-symbol" aria-hidden="true">!</span>
-                  <h1>{isCustomerUser ? "Restricted to workshop staff" : "Signed in as workshop staff"}</h1>
+                  <h1>{isCustomerUser ? "Staff portal only" : "Signed in as staff"}</h1>
                   <p>
                     {isCustomerUser
-                      ? `You are signed in as ${sessionUser.username} (Customer). The /staff portal is restricted to authorised workshop staff and administrators.`
-                      : `You are signed in as ${sessionUser.username} (${sessionUser.role}). Open the Workshop Staff Portal or sign out to use the Customer Portal.`}
+                      ? `Signed in as ${sessionUser.username} (Customer). Only workshop staff can open /staff.`
+                      : `Signed in as ${sessionUser.username} (${sessionUser.role}). Open Staff Portal or sign out to switch.`}
                   </p>
                   <div className="auth-actions">
                     <button
@@ -548,8 +630,13 @@ function App() {
                   </div>
                 </div>
               </div>
-            </div>
-          </main>
+            </main>
+            <footer className="auth-footer">
+              <div className="auth-footer-meta">
+                <strong>{WORKSHOP_PROFILE.name}</strong>
+              </div>
+            </footer>
+          </div>
         ) : isCustomerUser ? (
           <CustomerPortal
             api={api}
@@ -562,10 +649,10 @@ function App() {
             onSessionExpired={clearSession}
           />
         ) : (
-          <WorkshopShell user={sessionUser} onLogout={logout} signingOut={authBusy} activeTab={activeTab} counts={{ customers: customers.length, vehicles: vehicles.length, appointments: appointments.length, services: services.length, mechanics: mechanics.length }} status={status} mutating={mutating || authBusy} onNavigate={setActiveTab} onOpenSettings={openSettings}>
+          <WorkshopShell user={sessionUser} onLogout={logout} signingOut={authBusy} activeTab={activeTab} counts={{ customers: customers.length, vehicles: vehicles.length, appointments: appointments.length, services: services.length, parts: parts.length, mechanics: mechanics.length }} status={status} mutating={mutating || authBusy} onNavigate={setActiveTab} onOpenSettings={openSettings}>
             <main id="main-content" tabIndex={-1}>
               {notice && <div className="notice-container no-print"><Notice notice={notice} onDismiss={() => setNotice(null)} /></div>}
-              <DashboardSection active={activeTab === "dashboard"} status={status} errorMessage={errorMessage} customers={customers} vehicles={vehicles} services={services} mechanics={mechanics} appointments={appointments} busy={busy} onRetry={reloadRecords} onOpenSettings={openSettings} onNavigate={setActiveTab} onOpenAppointments={openAppointments} />
+              <DashboardSection active={activeTab === "dashboard"} status={status} errorMessage={errorMessage} customers={customers} vehicles={vehicles} services={services} parts={parts} mechanics={mechanics} appointments={appointments} busy={busy} onRetry={reloadRecords} onOpenSettings={openSettings} onNavigate={setActiveTab} onOpenAppointments={openAppointments} />
               <CustomersSection
                 active={activeTab === "customers"}
                 status={status}
@@ -597,17 +684,22 @@ function App() {
               />
               <AppointmentsSection
                 active={activeTab === "appointments"}
+                api={api}
                 connectionStatus={status}
                 errorMessage={errorMessage}
                 customers={customers}
                 vehicles={vehicles}
                 appointments={appointments}
                 services={services}
+                parts={parts}
                 mechanics={mechanics}
                 preset={appointmentPreset}
                 onAssignMechanic={assignMechanic}
                 onTransitionStatus={transitionAppointmentStatus}
                 onRecordService={recordService}
+                onAddPart={addAppointmentPart}
+                onRemovePart={removeAppointmentPart}
+                onRecordPayment={recordAppointmentPayment}
                 onOpenReceipt={openReceipt}
                 onAddMechanic={() => { setActiveTab("mechanics"); window.requestAnimationFrame(() => document.getElementById("mechanics-nav")?.focus()); }}
                 busy={busy}
@@ -628,6 +720,17 @@ function App() {
                 onRetry={reloadRecords}
                 onSave={saveService}
                 onError={(message) => showNotice(message, "error")}
+              />
+              <PartsSection
+                active={activeTab === "parts"}
+                status={status}
+                errorMessage={errorMessage}
+                parts={parts}
+                busy={busy}
+                onOpenSettings={openSettings}
+                onRetry={reloadRecords}
+                onSave={savePart}
+                onAdjustStock={adjustPartStock}
               />
               <MechanicsSection active={activeTab === "mechanics"} status={status} errorMessage={errorMessage} mechanics={mechanics} busy={busy} onOpenSettings={openSettings} onRetry={reloadRecords} onSave={saveMechanic} />
               {sessionUser.role === "Admin" && <UsersSection key={sessionUser.id} active={activeTab === "users"} currentUser={sessionUser} api={api} onSessionExpired={clearSession} />}

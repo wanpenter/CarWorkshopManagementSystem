@@ -2,18 +2,30 @@ import { StatePanel } from "./Shared.jsx";
 import WorkshopIcon from "./WorkshopIcon.jsx";
 
 const dayKey = (date) => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kuala_Lumpur", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(date));
+const monthKey = (date) => dayKey(date).slice(0, 7);
+const money = (value) => new Intl.NumberFormat("en-MY", { style: "currency", currency: "MYR" }).format(Number(value) || 0);
 const labels = { Requested: "Needs review", Confirmed: "Confirmed", Scheduled: "Scheduled", InProgress: "In progress", Completed: "Completed", Cancelled: "Cancelled", Rejected: "Rejected" };
 const pillClasses = { Requested: "pill-rust", Confirmed: "pill-success", Scheduled: "pill-rust", InProgress: "pill-teal", Completed: "pill-success", Cancelled: "pill-muted", Rejected: "pill-danger" };
 const activeStatuses = ["Requested", "Confirmed", "Scheduled", "InProgress"];
 
-export default function DashboardSection({ active, status, errorMessage, customers, vehicles, services, mechanics, appointments, busy, onRetry, onOpenSettings, onNavigate, onOpenAppointments }) {
+export default function DashboardSection({ active, status, errorMessage, customers, vehicles, services, parts = [], mechanics, appointments, busy, onRetry, onOpenSettings, onNavigate, onOpenAppointments }) {
   const openAppointments = (preset = {}) => (onOpenAppointments ? onOpenAppointments(preset) : onNavigate("appointments"));
   const now = new Date();
   const today = dayKey(now);
+  const currentMonth = monthKey(now);
   const todaysBookings = appointments.filter((appointment) => dayKey(appointment.scheduledAtUtc) === today);
   const needsReview = appointments.filter((appointment) => appointment.status === "Requested");
   const unassigned = appointments.filter((appointment) => ["Confirmed", "Scheduled"].includes(appointment.status) && !appointment.mechanicId);
   const activeMechanics = mechanics.filter((mechanic) => mechanic.isActive);
+  const lowStockParts = parts.filter((part) => part.isActive && part.isLowStock);
+  const invoicedCompleted = appointments.filter((appointment) => appointment.status === "Completed" && appointment.invoice);
+  const unpaidInvoices = invoicedCompleted.filter((appointment) => Number(appointment.invoice.balanceDue) > 0 && appointment.invoice.paymentStatus !== "Voided");
+  const outstandingBalance = unpaidInvoices.reduce((sum, appointment) => sum + Number(appointment.invoice.balanceDue || 0), 0);
+  const monthCollected = invoicedCompleted.reduce((sum, appointment) => {
+    const paidDate = appointment.invoice.paidAtUtc || appointment.invoice.issuedAtUtc;
+    if (!paidDate || monthKey(paidDate) !== currentMonth) return sum;
+    return sum + Number(appointment.invoice.amountPaid || 0);
+  }, 0);
   const upcoming = appointments.filter((appointment) => activeStatuses.includes(appointment.status) && dayKey(appointment.scheduledAtUtc) >= today).sort((a, b) => Date.parse(a.scheduledAtUtc) - Date.parse(b.scheduledAtUtc)).slice(0, 5);
   const days = Array.from({ length: 7 }, (_, index) => {
     const date = new Date(`${today}T12:00:00+08:00`);
@@ -38,6 +50,23 @@ export default function DashboardSection({ active, status, errorMessage, custome
           : <StatePanel error title="The dashboard could not be loaded" body={errorMessage}><button className="button button-primary" onClick={() => void onRetry()} type="button">Try connection again</button><button className="button button-secondary" onClick={onOpenSettings} type="button">Check API settings</button></StatePanel>}
     </div> : <>
       <div className="dashboard-metrics">{stats.map((stat) => <button type="button" className="metric-card" key={stat.label} onClick={stat.onClick}><span className="metric-top"><span>{stat.label}</span><span className={`metric-icon ${stat.tone}`}><WorkshopIcon name={stat.icon} /></span></span><strong className="metric-value">{stat.value}</strong><span className="metric-note">{stat.note}</span></button>)}</div>
+      <div className="dashboard-billing-strip" aria-label="Billing and inventory summary">
+        <button type="button" className="billing-stat-card" onClick={() => openAppointments({ status: "Completed" })}>
+          <span className="billing-stat-label">Collected this month</span>
+          <strong className="billing-stat-value tabular-nums">{money(monthCollected)}</strong>
+          <span className="billing-stat-note">Recorded invoice payments (MYT)</span>
+        </button>
+        <button type="button" className="billing-stat-card" onClick={() => openAppointments({ status: "Completed" })}>
+          <span className="billing-stat-label">Outstanding balance</span>
+          <strong className={`billing-stat-value tabular-nums ${outstandingBalance > 0 ? "is-alert" : ""}`}>{money(outstandingBalance)}</strong>
+          <span className="billing-stat-note">{unpaidInvoices.length} unpaid {unpaidInvoices.length === 1 ? "invoice" : "invoices"}</span>
+        </button>
+        <button type="button" className="billing-stat-card" onClick={() => onNavigate("parts")}>
+          <span className="billing-stat-label">Low-stock parts</span>
+          <strong className={`billing-stat-value tabular-nums ${lowStockParts.length > 0 ? "is-alert" : ""}`}>{lowStockParts.length}</strong>
+          <span className="billing-stat-note">{parts.filter((part) => part.isActive).length} active SKUs tracked</span>
+        </button>
+      </div>
       <div className="dashboard-columns">
         <div className="dashboard-panel booking-chart"><div className="panel-heading"><div><h2>Bookings ahead</h2><p>Active and completed bookings over the next seven days</p></div><span className="period-label">Next 7 days</span></div>
           <div className="booking-bars" role="img" aria-label={`Booking counts: ${days.map((day) => `${dayKey(day.date)}: ${day.total}`).join(", ")}`}>
@@ -46,8 +75,8 @@ export default function DashboardSection({ active, status, errorMessage, custome
           <p className="chart-caption"><span className="legend-dot" />Booking count by scheduled date · Malaysia time</p>
         </div>
         <div className="dashboard-side">
-          <div className="dashboard-panel attention-panel"><div className="panel-heading"><h2>Needs attention</h2></div><button className="attention-row" type="button" onClick={() => openAppointments({ status: "Requested" })}><span><strong>Review booking requests</strong><small>Confirm or reject incoming visits</small></span><span className="attention-count">{needsReview.length}</span></button><button className="attention-row" type="button" onClick={() => openAppointments({ mechanic: "unassigned" })}><span><strong>Assign workshop staff</strong><small>Bookings waiting for a mechanic</small></span><span className="attention-count teal">{unassigned.length}</span></button></div>
-          <div className="dashboard-panel"><div className="panel-heading"><h2>Workshop records</h2></div><div className="record-totals">{[{ label: "Customers", value: customers.length, target: "customers" }, { label: "Vehicles", value: vehicles.length, target: "vehicles" }, { label: "Active services", value: services.filter((service) => service.isActive).length, target: "services" }].map((item) => <button key={item.label} type="button" onClick={() => onNavigate(item.target)}><span>{item.label}</span><strong>{item.value}</strong><WorkshopIcon name="arrow" /></button>)}</div></div>
+          <div className="dashboard-panel attention-panel"><div className="panel-heading"><h2>Needs attention</h2></div><button className="attention-row" type="button" onClick={() => openAppointments({ status: "Requested" })}><span><strong>Review booking requests</strong><small>Confirm or reject incoming visits</small></span><span className="attention-count">{needsReview.length}</span></button><button className="attention-row" type="button" onClick={() => openAppointments({ mechanic: "unassigned" })}><span><strong>Assign workshop staff</strong><small>Bookings waiting for a mechanic</small></span><span className="attention-count teal">{unassigned.length}</span></button><button className="attention-row" type="button" onClick={() => openAppointments({ status: "Completed" })}><span><strong>Collect invoice payments</strong><small>Completed jobs with balance due</small></span><span className="attention-count">{unpaidInvoices.length}</span></button><button className="attention-row" type="button" onClick={() => onNavigate("parts")}><span><strong>Restock spare parts</strong><small>Active SKUs at or below threshold</small></span><span className="attention-count teal">{lowStockParts.length}</span></button></div>
+          <div className="dashboard-panel"><div className="panel-heading"><h2>Workshop records</h2></div><div className="record-totals">{[{ label: "Customers", value: customers.length, target: "customers" }, { label: "Vehicles", value: vehicles.length, target: "vehicles" }, { label: "Active services", value: services.filter((service) => service.isActive).length, target: "services" }, { label: "Spare parts", value: parts.length, target: "parts" }].map((item) => <button key={item.label} type="button" onClick={() => onNavigate(item.target)}><span>{item.label}</span><strong>{item.value}</strong><WorkshopIcon name="arrow" /></button>)}</div></div>
         </div>
       </div>
       <div className="dashboard-panel upcoming-panel"><div className="panel-heading"><div><h2>Upcoming workshop visits</h2><p>Click any visit to open its booking details</p></div><button className="text-action" type="button" onClick={() => openAppointments({})}>View all appointments <WorkshopIcon name="arrow" /></button></div>

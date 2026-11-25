@@ -15,7 +15,10 @@ export function ConnectionStatus({ status }) {
   }[values[0]];
 
   return (
-    <div className={`flex min-h-11 items-center gap-2 px-3 text-sm font-semibold before:size-2.5 before:rounded-full before:content-[''] ${toneClasses}`} role="status">
+    <div
+      className={`connection-status is-${values[0]} flex min-h-11 items-center gap-2 px-3 text-sm font-semibold before:size-2.5 before:rounded-full before:content-[''] ${toneClasses}`}
+      role="status"
+    >
       {values[1]}
     </div>
   );

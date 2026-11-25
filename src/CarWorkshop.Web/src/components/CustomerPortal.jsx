@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ApiError,
+  PAYMENT_METHOD_LABELS,
+  PAYMENT_STATUS_LABELS,
   getProblemFieldErrors,
   toWorkshopDateTimeInput,
   toWorkshopUtcIso,
@@ -11,6 +13,7 @@ import {
 import { DeleteDialog } from "./Dialogs.jsx";
 import ServiceReceiptDialog from "./ServiceReceiptDialog.jsx";
 import { VehicleServiceHistory } from "./ServiceRecord.jsx";
+import SlotPicker from "./SlotPicker.jsx";
 import {
   ConnectionStatus,
   FormError,
@@ -26,6 +29,7 @@ import {
   TextField
 } from "./Shared.jsx";
 import WorkshopIcon from "./WorkshopIcon.jsx";
+import torqueProLogo from "../assets/torquepro-logo-light.png";
 
 const PORTAL_SECTIONS = [
   ["bookings", "My bookings", "appointments"],
@@ -106,7 +110,10 @@ function serviceSummary(appointment) {
 }
 
 function appointmentTotal(appointment) {
-  return (appointment.services ?? []).reduce((sum, item) => sum + Number(item.price || 0), 0);
+  if (appointment.invoice) return Number(appointment.invoice.totalAmount || 0);
+  const labour = (appointment.services ?? []).reduce((sum, item) => sum + Number(item.price || 0), 0);
+  const parts = (appointment.partsUsed ?? []).reduce((sum, item) => sum + Number(item.lineTotal || 0), 0);
+  return labour + parts;
 }
 
 const BLANK_VEHICLE = {
@@ -385,17 +392,54 @@ export default function CustomerPortal({
   const counts = { bookings: appointments.length, vehicles: vehicles.length };
 
   return (
-    <div className="workshop-shell">
+    <div className="workshop-shell is-customer-shell">
       <a className="skip-link" href="#portal-main">Skip to customer portal</a>
+
+      <header className="app-header">
+        <div className="header-location">
+          <button
+            ref={menuRef}
+            className="menu-toggle"
+            type="button"
+            aria-label={menuOpen ? "Close navigation" : "Open navigation"}
+            aria-controls="portal-sidebar"
+            aria-expanded={menuOpen}
+            onClick={() => setMenuOpen((open) => !open)}
+          >
+            <WorkshopIcon name={menuOpen ? "close" : "menu"} />
+          </button>
+          <a
+            className="app-header-brand"
+            href="#bookings"
+            onClick={(event) => { event.preventDefault(); navigate("bookings"); }}
+            aria-label="TorquePro customer portal"
+          >
+            <span className="app-header-wordmark">
+              Torque<span className="app-header-accent">Pro</span>
+            </span>
+            <span className="app-header-divider" aria-hidden="true" />
+            <img
+              src={torqueProLogo}
+              alt=""
+              aria-hidden="true"
+              className="app-header-logo"
+            />
+          </a>
+        </div>
+
+        <div className="header-tools">
+          <ConnectionStatus status={status} />
+          <button className="header-settings" type="button" onClick={onOpenSettings} disabled={busy}>
+            <WorkshopIcon name="settings" />
+            <span>API settings</span>
+          </button>
+          <button className="header-settings" type="button" disabled={busy} onClick={onLogout}>
+            {signingOut ? "Signing out..." : "Sign out"}
+          </button>
+        </div>
+      </header>
+
       <aside className={`sidebar ${menuOpen ? "is-open" : ""}`} id="portal-sidebar">
-        <a
-          className="brand"
-          href="#bookings"
-          onClick={(event) => { event.preventDefault(); navigate("bookings"); }}
-          aria-label="TorquePro customer portal"
-        >
-          <span>Torque<span className="brand-accent">Pro</span></span>
-        </a>
         <div className="sidebar-caption">Customer portal</div>
         <nav className="section-nav" aria-label="Customer portal navigation">
           {PORTAL_SECTIONS.map(([id, label, icon]) => (
@@ -423,37 +467,12 @@ export default function CustomerPortal({
       </aside>
 
       <div className="app-surface">
-        <header className="app-header">
-          <div className="header-location">
-            <button
-              ref={menuRef}
-              className="menu-toggle"
-              type="button"
-              aria-label={menuOpen ? "Close navigation" : "Open navigation"}
-              aria-controls="portal-sidebar"
-              aria-expanded={menuOpen}
-              onClick={() => setMenuOpen((open) => !open)}
-            >
-              <WorkshopIcon name={menuOpen ? "close" : "menu"} />
-            </button>
-            <span className="header-workspace">Customer portal</span>
-            <span className="breadcrumb-divider">/</span>
+        <div className="workspace-context">
+          <div className="context-breadcrumb">
+            <span>Customer portal</span>
+            <span className="breadcrumb-divider" aria-hidden="true">/</span>
             <strong>{currentTabLabel}</strong>
           </div>
-          <div className="header-tools">
-            <ConnectionStatus status={status} />
-            <button className="header-settings" type="button" onClick={onOpenSettings} disabled={busy}>
-              <WorkshopIcon name="settings" />
-              <span>API settings</span>
-            </button>
-            <button className="header-settings" type="button" disabled={busy} onClick={onLogout}>
-              {signingOut ? "Signing out..." : "Sign out"}
-            </button>
-          </div>
-        </header>
-
-        <div className="workspace-context">
-          <span>Self-service booking &amp; service history</span>
           <time dateTime={new Date().toISOString()}>
             {new Intl.DateTimeFormat("en-MY", { weekday: "long", day: "numeric", month: "long", year: "numeric", timeZone: "Asia/Kuala_Lumpur" }).format(new Date())}
             <span className="date-zone">MYT</span>
@@ -685,6 +704,7 @@ export default function CustomerPortal({
 
               <PortalBookServiceSection
                 active={activeTab === "book"}
+                api={api}
                 vehicles={activeVehicles}
                 services={services}
                 busy={busy}
@@ -854,11 +874,54 @@ function PortalBookingDetail({ appointment, busy, onRequestCancel, onOpenReceipt
               </div>
             ))}
             <div className="flex justify-between border-t border-paper-line pt-1.5 font-bold">
-              <span>Estimated total</span>
-              <span className="tabular-nums">{money(appointmentTotal(appointment))}</span>
+              <span>{(appointment.partsUsed?.length || appointment.invoice) ? "Labour subtotal" : "Estimated total"}</span>
+              <span className="tabular-nums">
+                {money((appointment.services ?? []).reduce((sum, item) => sum + Number(item.price || 0), 0))}
+              </span>
             </div>
           </dd>
         </div>
+        {(appointment.partsUsed?.length ?? 0) > 0 && (
+          <div>
+            <dt className="text-xs font-bold tracking-[0.06em] text-ink-soft uppercase">Spare parts used</dt>
+            <dd className="mt-1 space-y-1">
+              {appointment.partsUsed.map((part) => (
+                <div key={part.id} className="flex justify-between gap-2 text-xs">
+                  <span>{part.name} ({part.quantity} × {money(part.unitPrice)})</span>
+                  <span className="font-semibold tabular-nums">{money(part.lineTotal)}</span>
+                </div>
+              ))}
+            </dd>
+          </div>
+        )}
+        {appointment.invoice && (
+          <div className="billing-panel">
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+              <strong className="text-xs uppercase tracking-[0.05em] text-ink-soft">
+                Invoice {appointment.invoice.invoiceNumber}
+              </strong>
+              <span className={`status-text ${appointment.invoice.paymentStatus === "Paid" ? "pill-success" : appointment.invoice.paymentStatus === "PartiallyPaid" ? "pill-teal" : "pill-rust"}`}>
+                {PAYMENT_STATUS_LABELS[appointment.invoice.paymentStatus] ?? appointment.invoice.paymentStatus}
+              </span>
+            </div>
+            <dl className="invoice-summary-grid tabular-nums">
+              <div><dt>Labour</dt><dd>{money(appointment.invoice.labourSubtotal)}</dd></div>
+              <div><dt>Parts</dt><dd>{money(appointment.invoice.partsSubtotal)}</dd></div>
+              <div className="invoice-summary-total"><dt>Total</dt><dd>{money(appointment.invoice.totalAmount)}</dd></div>
+              <div><dt>Paid</dt><dd>{money(appointment.invoice.amountPaid)}</dd></div>
+              <div className={Number(appointment.invoice.balanceDue) > 0 ? "text-rust-dark font-bold" : "text-success font-bold"}>
+                <dt>Balance due</dt>
+                <dd>{money(appointment.invoice.balanceDue)}</dd>
+              </div>
+            </dl>
+            {appointment.invoice.paymentMethod && (
+              <p className="mt-2 text-xs text-ink-soft">
+                Paid via <strong>{PAYMENT_METHOD_LABELS[appointment.invoice.paymentMethod] ?? appointment.invoice.paymentMethod}</strong>
+                {appointment.invoice.paymentReference ? ` · Ref: ${appointment.invoice.paymentReference}` : ""}
+              </p>
+            )}
+          </div>
+        )}
         {appointment.notes && (
           <div>
             <dt className="text-xs font-bold tracking-[0.06em] text-ink-soft uppercase">Your notes</dt>
@@ -881,7 +944,7 @@ function PortalBookingDetail({ appointment, busy, onRequestCancel, onOpenReceipt
   );
 }
 
-function PortalBookServiceSection({ active, vehicles, services, busy, onGoVehicles, onSubmit }) {
+function PortalBookServiceSection({ active, api, vehicles, services, busy, onGoVehicles, onSubmit }) {
   const [form, setForm] = useState(() => ({
     vehicleId: "",
     scheduledAtLocal: nextSlotInput(),
@@ -981,16 +1044,6 @@ function PortalBookServiceSection({ active, vehicles, services, busy, onGoVehicl
                   ))}
                 </SelectField>
 
-                <TextField
-                  id="scheduledAtLocal"
-                  label="Date and time (MYT)"
-                  type="datetime-local"
-                  value={form.scheduledAtLocal}
-                  error={errors.scheduledAtLocal || errors.scheduledAtUtc}
-                  help="Workshop hours: 8:30 AM – 5:30 PM MYT. Appointments start every 30 minutes."
-                  onChange={updateField}
-                />
-
                 <fieldset className="mb-5 min-w-0 border-0 p-0">
                   <legend className="mb-2 font-bold">Select services</legend>
                   <div className="grid gap-2">
@@ -1019,6 +1072,18 @@ function PortalBookServiceSection({ active, vehicles, services, busy, onGoVehicl
                   </div>
                   {errors.serviceIds && <p className="mt-2 text-sm font-semibold text-danger" role="alert">{errors.serviceIds}</p>}
                 </fieldset>
+
+                <SlotPicker
+                  api={api}
+                  mode="portal"
+                  value={form.scheduledAtLocal}
+                  onChange={(nextValue) => updateField("scheduledAtLocal", nextValue)}
+                  durationMinutes={totalMinutes}
+                  vehicleId={form.vehicleId}
+                  disabled={busy}
+                  error={errors.scheduledAtLocal || errors.scheduledAtUtc}
+                  idPrefix="portal-slot"
+                />
 
                 <TextAreaField
                   id="portalNotes"

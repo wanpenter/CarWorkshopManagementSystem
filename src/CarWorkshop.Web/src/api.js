@@ -195,7 +195,68 @@ export function validateVehicle(values, { currentYear = new Date().getUTCFullYea
 }
 
 export const APPOINTMENT_STATUSES = Object.freeze(["Requested", "Confirmed", "Rejected", "Scheduled", "InProgress", "Completed", "Cancelled"]);
+export const PAYMENT_METHODS = Object.freeze(["Cash", "DuitNowQR", "Card", "OnlineTransfer"]);
+export const PAYMENT_METHOD_LABELS = Object.freeze({
+  Cash: "Cash",
+  DuitNowQR: "DuitNow QR",
+  Card: "Card",
+  OnlineTransfer: "Online transfer"
+});
+export const PAYMENT_STATUS_LABELS = Object.freeze({
+  Unpaid: "Unpaid",
+  PartiallyPaid: "Partially paid",
+  Paid: "Paid",
+  Voided: "Voided"
+});
 export const WORKSHOP_UTC_OFFSET_HOURS = 8;
+
+export function validatePart(values, { includeStock = true } = {}) {
+  const sku = String(values?.sku ?? "").trim().toUpperCase();
+  const name = String(values?.name ?? "").trim();
+  const description = String(values?.description ?? "").trim();
+  const unitPriceText = String(values?.unitPrice ?? "").trim();
+  const unitPrice = Number(unitPriceText);
+  const stockText = String(values?.stockQuantity ?? "").trim();
+  const stockQuantity = stockText === "" ? NaN : Number(stockText);
+  const thresholdText = String(values?.lowStockThreshold ?? "").trim();
+  const lowStockThreshold = thresholdText === "" ? 5 : Number(thresholdText);
+  const errors = {};
+
+  if (!sku) errors.sku = "Enter the part SKU.";
+  else if (sku.length > 40) errors.sku = "SKU must be 40 characters or fewer.";
+  else if (!/^[A-Z0-9._-]+$/.test(sku)) errors.sku = "Use letters, numbers, hyphens, dots, or underscores only.";
+
+  if (!name) errors.name = "Enter the part name.";
+  else if (name.length > 120) errors.name = "Part name must be 120 characters or fewer.";
+
+  if (description.length > 500) errors.description = "Description must be 500 characters or fewer.";
+
+  if (!/^\d+(?:\.\d{1,2})?$/.test(unitPriceText) || !Number.isFinite(unitPrice) || unitPrice < 0 || unitPrice > 999999.99) {
+    errors.unitPrice = "Enter a price from 0 to 999,999.99 (up to 2 decimal places).";
+  }
+
+  if (includeStock && (!Number.isInteger(stockQuantity) || stockQuantity < 0 || stockQuantity > 1_000_000)) {
+    errors.stockQuantity = "Enter a whole stock quantity of 0 or more.";
+  }
+
+  if (!Number.isInteger(lowStockThreshold) || lowStockThreshold < 0 || lowStockThreshold > 1_000_000) {
+    errors.lowStockThreshold = "Enter a whole alert threshold of 0 or more.";
+  }
+
+  return {
+    valid: Object.keys(errors).length === 0,
+    errors,
+    values: {
+      sku,
+      name,
+      description: description || null,
+      unitPrice,
+      ...(includeStock ? { stockQuantity } : {}),
+      lowStockThreshold,
+      isActive: values?.isActive !== false
+    }
+  };
+}
 
 export function toWorkshopUtcIso(value) {
   const input = String(value ?? "").trim();
@@ -322,7 +383,20 @@ const FIELD_NAMES = {
   servicetype: "serviceType",
   vehicleid: "vehicleId",
   notes: "notes",
-  status: "status"
+  status: "status",
+  sku: "sku",
+  unitprice: "unitPrice",
+  stockquantity: "stockQuantity",
+  lowstockthreshold: "lowStockThreshold",
+  delta: "delta",
+  reason: "reason",
+  partid: "partId",
+  quantity: "quantity",
+  amount: "amount",
+  method: "method",
+  reference: "reference",
+  date: "date",
+  durationminutes: "durationMinutes"
 };
 
 export function getProblemFieldErrors(error) {
@@ -439,6 +513,13 @@ export function createApiClient(
     getPortalProfile: ({ signal } = {}) => request("/api/portal/profile", { signal }),
     updatePortalProfile: (profile, { signal } = {}) => request("/api/portal/profile", { method: "PUT", body: profile, signal }),
     getPortalServices: ({ signal } = {}) => request("/api/portal/services", { signal }),
+    getPortalAvailability: ({ date, durationMinutes = 30, vehicleId, signal } = {}) => {
+      const params = new URLSearchParams();
+      if (date) params.set("date", date);
+      if (durationMinutes) params.set("durationMinutes", String(durationMinutes));
+      if (vehicleId) params.set("vehicleId", String(vehicleId));
+      return request(`/api/portal/availability?${params.toString()}`, { signal });
+    },
     getPortalVehicles: ({ signal } = {}) => request("/api/portal/vehicles", { signal }),
     addPortalVehicle: (vehicle, { signal } = {}) => request("/api/portal/vehicles", { method: "POST", body: vehicle, signal }),
     updatePortalVehicle: (id, vehicle, { signal } = {}) => request(`/api/portal/vehicles/${id}`, { method: "PUT", body: vehicle, signal }),
@@ -481,11 +562,26 @@ export function createApiClient(
       return request(`/api/appointments${query}`, { signal });
     },
     getAppointment: (id, { signal } = {}) => request(`/api/appointments/${id}`, { signal }),
+    getWorkshopAvailability: ({ date, durationMinutes = 30, vehicleId, excludeAppointmentId, signal } = {}) => {
+      const params = new URLSearchParams();
+      if (date) params.set("date", date);
+      if (durationMinutes) params.set("durationMinutes", String(durationMinutes));
+      if (vehicleId) params.set("vehicleId", String(vehicleId));
+      if (excludeAppointmentId) params.set("excludeAppointmentId", String(excludeAppointmentId));
+      return request(`/api/appointments/availability?${params.toString()}`, { signal });
+    },
     addAppointment: (appointment, { signal } = {}) => request("/api/appointments", { method: "POST", body: appointment, signal }),
     updateAppointment: (id, appointment, { signal } = {}) => request(`/api/appointments/${id}`, { method: "PUT", body: appointment, signal }),
     transitionAppointmentStatus: (id, payload, { signal } = {}) => request(`/api/appointments/${id}/status`, { method: "POST", body: payload, signal }),
     logReceiptPrinted: (id, { signal } = {}) => request(`/api/appointments/${id}/receipt-printed`, { method: "POST", signal }),
     recordService: (id, record, { signal } = {}) => request(`/api/appointments/${id}/service-record`, { method: "POST", body: record, signal }),
+    addAppointmentPart: (id, payload, { signal } = {}) => request(`/api/appointments/${id}/parts`, { method: "POST", body: payload, signal }),
+    removeAppointmentPart: (id, partLineId, { signal } = {}) => request(`/api/appointments/${id}/parts/${partLineId}`, { method: "DELETE", signal }),
+    recordAppointmentPayment: (id, payload, { signal } = {}) => request(`/api/appointments/${id}/payment`, { method: "POST", body: payload, signal }),
+    getParts: ({ signal } = {}) => request("/api/parts", { signal }),
+    addPart: (part, { signal } = {}) => request("/api/parts", { method: "POST", body: part, signal }),
+    updatePart: (id, part, { signal } = {}) => request(`/api/parts/${id}`, { method: "PUT", body: part, signal }),
+    adjustPartStock: (id, payload, { signal } = {}) => request(`/api/parts/${id}/adjust-stock`, { method: "POST", body: payload, signal }),
     getServices: ({ signal } = {}) => request("/api/services", { signal }),
     addService: (service, { signal } = {}) => request("/api/services", { method: "POST", body: service, signal }),
     updateService: (id, service, { signal } = {}) => request(`/api/services/${id}`, { method: "PUT", body: service, signal }),

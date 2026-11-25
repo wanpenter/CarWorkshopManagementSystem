@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { PAYMENT_METHOD_LABELS, PAYMENT_STATUS_LABELS } from "../api.js";
 import { WORKSHOP_PROFILE, formatReceiptNumber } from "../workshopProfile.js";
 
 const moneyFormat = new Intl.NumberFormat("en-MY", { style: "currency", currency: "MYR" });
@@ -16,12 +17,22 @@ function formatMyt(value) {
 
 export function ReceiptSheet({ appointment, customer, printedAt }) {
   const services = appointment.services ?? [];
-  const totalPrice = services.reduce((sum, item) => sum + Number(item.price || 0), 0);
+  const partsUsed = appointment.partsUsed ?? [];
+  const invoice = appointment.invoice ?? null;
+  const labourTotal = invoice
+    ? Number(invoice.labourSubtotal)
+    : services.reduce((sum, item) => sum + Number(item.price || 0), 0);
+  const partsTotal = invoice
+    ? Number(invoice.partsSubtotal)
+    : partsUsed.reduce((sum, item) => sum + Number(item.lineTotal || 0), 0);
+  const grandTotal = invoice ? Number(invoice.totalAmount) : labourTotal + partsTotal;
+  const amountPaid = invoice ? Number(invoice.amountPaid) : 0;
+  const balanceDue = invoice ? Number(invoice.balanceDue) : Math.max(0, grandTotal - amountPaid);
   const totalMinutes = services.reduce((sum, item) => sum + Number(item.durationMinutes || 0), 0);
-  const receiptNumber = formatReceiptNumber(appointment);
+  const receiptNumber = invoice?.invoiceNumber || formatReceiptNumber(appointment);
 
   return (
-    <article className="receipt-sheet" aria-label={`Service receipt ${receiptNumber}`}>
+    <article className="receipt-sheet" aria-label={`Service invoice ${receiptNumber}`}>
       <header className="receipt-header">
         <div>
           <div className="receipt-brand">
@@ -34,11 +45,13 @@ export function ReceiptSheet({ appointment, customer, printedAt }) {
           </p>
         </div>
         <div className="receipt-header-right">
-          <div className="receipt-doc-title">SERVICE RECEIPT</div>
+          <div className="receipt-doc-title">{invoice ? "INVOICE & RECEIPT" : "SERVICE RECEIPT"}</div>
           <dl className="receipt-id-grid">
-            <div><dt>Receipt No.</dt><dd>{receiptNumber}</dd></div>
+            <div><dt>{invoice ? "Invoice No." : "Receipt No."}</dt><dd>{receiptNumber}</dd></div>
             <div><dt>Booking Ref.</dt><dd>#{appointment.id}</dd></div>
-            <div><dt>Status</dt><dd>{appointment.status}</dd></div>
+            {invoice && (
+              <div><dt>Payment</dt><dd>{PAYMENT_STATUS_LABELS[invoice.paymentStatus] ?? invoice.paymentStatus}</dd></div>
+            )}
             <div><dt>Printed</dt><dd>{formatMyt(printedAt)}</dd></div>
           </dl>
         </div>
@@ -68,7 +81,7 @@ export function ReceiptSheet({ appointment, customer, printedAt }) {
       </section>
 
       <section className="receipt-section">
-        <h3>Booked Services</h3>
+        <h3>Booked Services (Labour)</h3>
         {services.length > 0 ? (
           <table className="receipt-table">
             <thead>
@@ -89,15 +102,85 @@ export function ReceiptSheet({ appointment, customer, printedAt }) {
             </tbody>
             <tfoot>
               <tr>
-                <td><strong>Total</strong></td>
+                <td><strong>Labour Subtotal</strong></td>
                 <td className="receipt-num">{totalMinutes} min</td>
-                <td className="receipt-num receipt-total">{moneyFormat.format(totalPrice)}</td>
+                <td className="receipt-num"><strong>{moneyFormat.format(labourTotal)}</strong></td>
               </tr>
             </tfoot>
           </table>
         ) : (
           <p className="receipt-muted">{appointment.serviceType || "Legacy service record (no itemized prices)."}</p>
         )}
+      </section>
+
+      {partsUsed.length > 0 && (
+        <section className="receipt-section">
+          <h3>Spare Parts Used</h3>
+          <table className="receipt-table">
+            <thead>
+              <tr>
+                <th>Part &amp; SKU</th>
+                <th className="receipt-num">Qty</th>
+                <th className="receipt-num">Unit (RM)</th>
+                <th className="receipt-num">Amount (RM)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {partsUsed.map((part) => (
+                <tr key={part.id}>
+                  <td>
+                    <strong>{part.name}</strong>
+                    <span className="receipt-meta-line"> ({part.sku})</span>
+                  </td>
+                  <td className="receipt-num">{part.quantity}</td>
+                  <td className="receipt-num">{moneyFormat.format(part.unitPrice)}</td>
+                  <td className="receipt-num">{moneyFormat.format(part.lineTotal)}</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr>
+                <td colSpan={3}><strong>Parts Subtotal</strong></td>
+                <td className="receipt-num"><strong>{moneyFormat.format(partsTotal)}</strong></td>
+              </tr>
+            </tfoot>
+          </table>
+        </section>
+      )}
+
+      <section className="receipt-section">
+        <div className="receipt-totals-summary">
+          <div className="receipt-payment-notes">
+            <h3>Payment Details</h3>
+            {invoice ? (
+              <>
+                <p>Status: <strong>{PAYMENT_STATUS_LABELS[invoice.paymentStatus] ?? invoice.paymentStatus}</strong></p>
+                {invoice.paymentMethod && (
+                  <p>Method: {PAYMENT_METHOD_LABELS[invoice.paymentMethod] ?? invoice.paymentMethod}</p>
+                )}
+                {invoice.paymentReference && (
+                  <p>Reference: {invoice.paymentReference}</p>
+                )}
+                {invoice.paidAtUtc && (
+                  <p>Paid on: {formatMyt(invoice.paidAtUtc)}</p>
+                )}
+              </>
+            ) : (
+              <p className="receipt-muted">Standard workshop receipt.</p>
+            )}
+          </div>
+          <dl className="receipt-totals-grid tabular-nums">
+            <div><dt>Labour</dt><dd>{moneyFormat.format(labourTotal)}</dd></div>
+            <div><dt>Spare Parts</dt><dd>{moneyFormat.format(partsTotal)}</dd></div>
+            <div className="receipt-grand-row"><dt>Grand Total</dt><dd className="receipt-total">{moneyFormat.format(grandTotal)}</dd></div>
+            {invoice && (
+              <>
+                <div><dt>Amount Paid</dt><dd>{moneyFormat.format(amountPaid)}</dd></div>
+                <div><dt><strong>Balance Due</strong></dt><dd><strong>{moneyFormat.format(balanceDue)}</strong></dd></div>
+              </>
+            )}
+          </dl>
+        </div>
       </section>
 
       {appointment.serviceRecord && (
@@ -169,7 +252,7 @@ export default function ServiceReceiptDialog({ appointment, customer, onClose, o
                   Service receipt preview
                 </h2>
                 <p className="mt-1 text-sm text-ink-soft">
-                  {formatReceiptNumber(appointment)} · Use Print to send to a workshop printer or choose Save as PDF.
+                  {appointment.invoice?.invoiceNumber || formatReceiptNumber(appointment)} · Use Print to send to a workshop printer or choose Save as PDF.
                 </p>
               </div>
               <div className="flex flex-wrap gap-2">
