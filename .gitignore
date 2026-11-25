@@ -490,3 +490,8 @@ $RECYCLE.BIN/
 # Local preview exports and scratch screenshots
 sites/
 Screenshot *.png
+
+# Local design tooling and scratch exports
+.impeccable/
+RESIT.pdf
+Dynamic TP Automotive Logo.png
