@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Security.Claims;
 using CarWorkshop.Api.Authentication;
 using CarWorkshop.Api.Requests;
@@ -50,6 +51,28 @@ public sealed class CustomerPortalController(
         _ = await ResolveCustomerContextAsync(cancellationToken);
         var all = await services.GetAllAsync(cancellationToken);
         return Ok(all.Where(service => service.IsActive).ToArray());
+    }
+
+    [HttpGet("availability")]
+    public async Task<ActionResult<DayAvailabilityDetails>> GetAvailability(
+        [FromQuery] string? date,
+        [FromQuery] int durationMinutes = 30,
+        [FromQuery] int? vehicleId = null,
+        CancellationToken cancellationToken = default)
+    {
+        var (_, customerId) = await ResolveCustomerContextAsync(cancellationToken);
+        if (string.IsNullOrWhiteSpace(date) ||
+            !DateOnly.TryParseExact(date.Trim(), "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsedDate))
+        {
+            throw new ArgumentException("Date must be in YYYY-MM-DD format.", "date");
+        }
+
+        return Ok(await appointments.GetAvailableSlotsForCustomerAsync(
+            customerId,
+            parsedDate,
+            durationMinutes,
+            vehicleId,
+            cancellationToken));
     }
 
     [HttpGet("vehicles")]

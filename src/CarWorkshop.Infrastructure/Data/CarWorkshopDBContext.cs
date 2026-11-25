@@ -25,6 +25,12 @@ public class CarWorkshopDbContext : DbContext
 
     public DbSet<AppointmentService> AppointmentServices { get; set; }
 
+    public DbSet<Part> Parts { get; set; }
+
+    public DbSet<AppointmentPart> AppointmentParts { get; set; }
+
+    public DbSet<Invoice> Invoices { get; set; }
+
     public DbSet<WorkshopUser> WorkshopUsers { get; set; }
 
     public DbSet<WorkshopSession> WorkshopSessions { get; set; }

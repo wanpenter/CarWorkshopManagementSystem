@@ -11,11 +11,155 @@ public sealed class AppointmentService(
     IVehicleRepository vehicles,
     IServiceRepository services,
     IMechanicRepository mechanics,
+    IPartRepository parts,
     IUnitOfWork unitOfWork,
     TimeProvider timeProvider,
     AuditLogService auditLogs)
 {
+    private const int DailyBookingCap = 10;
     private static readonly TimeSpan MalaysiaOffset = TimeSpan.FromHours(8);
+
+    public async Task<DayAvailabilityDetails> GetAvailableSlotsAsync(
+        DateOnly date,
+        int durationMinutes,
+        int? vehicleId = null,
+        int? excludeAppointmentId = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (durationMinutes < 1 || durationMinutes > 540)
+            throw new ArgumentOutOfRangeException(
+                nameof(durationMinutes),
+                "Service duration must be between 1 and 540 minutes.");
+
+        if (vehicleId.HasValue)
+        {
+            if (vehicleId.Value <= 0)
+                throw new ArgumentOutOfRangeException(nameof(vehicleId), "Vehicle is invalid.");
+            await FindVehicleAsync(vehicleId.Value, cancellationToken);
+        }
+
+        return await ComputeDayAvailabilityAsync(
+            date,
+            durationMinutes,
+            vehicleId,
+            excludeAppointmentId,
+            cancellationToken);
+    }
+
+    public async Task<DayAvailabilityDetails> GetAvailableSlotsForCustomerAsync(
+        int customerId,
+        DateOnly date,
+        int durationMinutes,
+        int? vehicleId = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (durationMinutes < 1 || durationMinutes > 540)
+            throw new ArgumentOutOfRangeException(
+                nameof(durationMinutes),
+                "Service duration must be between 1 and 540 minutes.");
+
+        if (vehicleId.HasValue)
+        {
+            if (vehicleId.Value <= 0)
+                throw new ArgumentOutOfRangeException(nameof(vehicleId), "Vehicle is invalid.");
+            var vehicle = await FindVehicleAsync(vehicleId.Value, cancellationToken);
+            if (vehicle.CustomerId != customerId)
+                throw new ForbiddenException("You can only check availability for your own vehicles.");
+        }
+
+        return await ComputeDayAvailabilityAsync(
+            date,
+            durationMinutes,
+            vehicleId,
+            excludeAppointmentId: null,
+            cancellationToken);
+    }
+
+    private async Task<DayAvailabilityDetails> ComputeDayAvailabilityAsync(
+        DateOnly date,
+        int durationMinutes,
+        int? vehicleId,
+        int? excludeAppointmentId,
+        CancellationToken cancellationToken)
+    {
+        var dayStartUtc = DateTime.SpecifyKind(
+            date.ToDateTime(TimeOnly.MinValue).Subtract(MalaysiaOffset),
+            DateTimeKind.Utc);
+        var bookings = await appointments.GetForDayAsync(dayStartUtc, dayStartUtc.AddDays(1), cancellationToken);
+        var active = bookings
+            .Where(item => item.Id != excludeAppointmentId && ConsumesCapacity(item.Status))
+            .ToArray();
+        var activeMechanicCount = await mechanics.CountActiveAsync(cancellationToken);
+        var nowUtc = timeProvider.GetUtcNow().UtcDateTime;
+        var dayFull = active.Length >= DailyBookingCap;
+        var closingTime = new TimeSpan(17, 30, 0);
+        var slots = new List<TimeSlotAvailability>(18);
+
+        for (var startMinutes = 510; startMinutes <= 1020; startMinutes += 30)
+        {
+            var localStart = date.ToDateTime(new TimeOnly(startMinutes / 60, startMinutes % 60));
+            var startUtc = DateTime.SpecifyKind(localStart.Subtract(MalaysiaOffset), DateTimeKind.Utc);
+            var endUtc = startUtc.AddMinutes(durationMinutes);
+            var localEnd = endUtc.Add(MalaysiaOffset);
+            var startLocal = $"{startMinutes / 60:D2}:{startMinutes % 60:D2}";
+
+            string? reason = null;
+            var remainingMechanics = 0;
+
+            if (localEnd.Date != localStart.Date || localEnd.TimeOfDay > closingTime)
+            {
+                reason = "exceeds_hours";
+            }
+            else if (startUtc <= nowUtc)
+            {
+                reason = "past";
+            }
+            else if (activeMechanicCount == 0)
+            {
+                reason = "no_mechanics";
+            }
+            else if (dayFull)
+            {
+                reason = "day_full";
+            }
+            else if (vehicleId.HasValue && active.Any(item =>
+                item.VehicleId == vehicleId.Value &&
+                item.ScheduledAtUtc < endUtc &&
+                (item.EstimatedEndUtc ?? item.ScheduledAtUtc.AddMinutes(30)) > startUtc))
+            {
+                reason = "vehicle_conflict";
+            }
+            else
+            {
+                var peak = PeakConcurrentBookings(startUtc, endUtc, active);
+                if (peak > activeMechanicCount)
+                {
+                    reason = "slot_full";
+                }
+                else
+                {
+                    remainingMechanics = Math.Max(0, activeMechanicCount - (peak - 1));
+                }
+            }
+
+            slots.Add(new TimeSlotAvailability(
+                startLocal,
+                startUtc,
+                endUtc,
+                reason is null,
+                remainingMechanics,
+                reason));
+        }
+
+        return new DayAvailabilityDetails(
+            date.ToString("yyyy-MM-dd"),
+            durationMinutes,
+            active.Length,
+            DailyBookingCap,
+            activeMechanicCount,
+            dayFull,
+            slots);
+    }
 
     public async Task<IReadOnlyList<AppointmentDetails>> GetAllAsync(int? customerId,
         AppointmentStatus? status, CancellationToken cancellationToken = default)
@@ -168,11 +312,12 @@ public sealed class AppointmentService(
         var oldValues = AppointmentSnapshot(appointment);
         return await appointments.WithDayLockAsync(day, async () =>
         {
+            var nowUtc = timeProvider.GetUtcNow().UtcDateTime;
             try
             {
                 appointment.UpdateBooking(command.CustomerId, command.VehicleId,
                     command.ScheduledAtUtc, selected, command.Notes, command.Status,
-                    timeProvider.GetUtcNow().UtcDateTime);
+                    nowUtc);
             }
             catch (InvalidOperationException exception)
             {
@@ -198,6 +343,11 @@ public sealed class AppointmentService(
                 oldValues: oldValues,
                 newValues: AppointmentSnapshot(appointment),
                 cancellationToken: cancellationToken);
+            if (appointment.Status == AppointmentStatus.Completed && appointment.Invoice is null)
+            {
+                var invoice = appointment.EnsureInvoiceIssued(FormatInvoiceNumber(appointment), nowUtc);
+                await StageInvoiceIssuedAuditAsync(appointment, invoice, cancellationToken);
+            }
             await unitOfWork.SaveChangesAsync(cancellationToken);
             return ToDetails(appointment, customer, vehicle);
         }, cancellationToken);
@@ -249,9 +399,10 @@ public sealed class AppointmentService(
             var appointment = await FindAppointmentAsync(id, cancellationToken);
             var oldStatus = appointment.Status;
             var oldValues = AppointmentSnapshot(appointment);
+            var nowUtc = timeProvider.GetUtcNow().UtcDateTime;
             try
             {
-                appointment.TransitionStatus(nextStatus, reason, timeProvider.GetUtcNow().UtcDateTime);
+                appointment.TransitionStatus(nextStatus, reason, nowUtc);
             }
             catch (InvalidOperationException exception)
             {
@@ -269,6 +420,170 @@ public sealed class AppointmentService(
                 oldValues: oldValues,
                 newValues: AppointmentSnapshot(appointment),
                 cancellationToken: cancellationToken);
+            if (appointment.Status == AppointmentStatus.Completed && appointment.Invoice is null)
+            {
+                var invoice = appointment.EnsureInvoiceIssued(FormatInvoiceNumber(appointment), nowUtc);
+                await StageInvoiceIssuedAuditAsync(appointment, invoice, cancellationToken);
+            }
+            await unitOfWork.SaveChangesAsync(cancellationToken);
+            return ToDetails(appointment);
+        }, cancellationToken);
+
+    public Task<AppointmentDetails> AddPartUsageAsync(
+        int appointmentId,
+        int partId,
+        int quantity,
+        CancellationToken cancellationToken = default)
+    {
+        if (partId <= 0)
+            throw new ArgumentOutOfRangeException(nameof(partId), "Choose a spare part.");
+
+        return appointments.WithSchedulingLockAsync(async () =>
+        {
+            var appointment = await FindAppointmentAsync(appointmentId, cancellationToken);
+            var part = await parts.GetByIdAsync(partId, cancellationToken)
+                ?? throw new EntityNotFoundException("Part", partId);
+            var previousStock = part.StockQuantity;
+
+            AppointmentPart line;
+            try
+            {
+                line = appointment.AddPartUsage(part, quantity);
+            }
+            catch (InvalidOperationException exception)
+            {
+                throw new ConflictException(exception.Message);
+            }
+
+            await auditLogs.StageAsync(
+                "Appointment.PartAdded",
+                "Appointment",
+                appointment.Id,
+                $"Added {line.Quantity} x {line.Name} ({line.Sku}) to appointment #{appointment.Id}.",
+                oldValues: new { partId = part.Id, stockQuantity = previousStock },
+                newValues: new
+                {
+                    partId = part.Id,
+                    sku = line.Sku,
+                    name = line.Name,
+                    quantity = line.Quantity,
+                    unitPrice = line.UnitPrice,
+                    lineTotal = line.LineTotal,
+                    stockQuantity = part.StockQuantity
+                },
+                cancellationToken: cancellationToken);
+            await unitOfWork.SaveChangesAsync(cancellationToken);
+            return ToDetails(appointment);
+        }, cancellationToken);
+    }
+
+    public Task<AppointmentDetails> RemovePartUsageAsync(
+        int appointmentId,
+        int appointmentPartId,
+        CancellationToken cancellationToken = default) =>
+        appointments.WithSchedulingLockAsync(async () =>
+        {
+            var appointment = await FindAppointmentAsync(appointmentId, cancellationToken);
+            var existingLine = appointment.PartsUsed.FirstOrDefault(item => item.Id == appointmentPartId)
+                ?? throw new EntityNotFoundException("AppointmentPart", appointmentPartId);
+            var part = await parts.GetByIdAsync(existingLine.PartId, cancellationToken);
+            var previousStock = part?.StockQuantity;
+
+            AppointmentPart removed;
+            try
+            {
+                removed = appointment.RemovePartUsage(appointmentPartId, part);
+            }
+            catch (KeyNotFoundException)
+            {
+                throw new EntityNotFoundException("AppointmentPart", appointmentPartId);
+            }
+            catch (InvalidOperationException exception)
+            {
+                throw new ConflictException(exception.Message);
+            }
+
+            await auditLogs.StageAsync(
+                "Appointment.PartRemoved",
+                "Appointment",
+                appointment.Id,
+                $"Removed {removed.Quantity} x {removed.Name} ({removed.Sku}) from appointment #{appointment.Id}.",
+                oldValues: new
+                {
+                    appointmentPartId,
+                    partId = removed.PartId,
+                    quantity = removed.Quantity,
+                    stockQuantity = previousStock
+                },
+                newValues: new { stockQuantity = part?.StockQuantity },
+                cancellationToken: cancellationToken);
+            await unitOfWork.SaveChangesAsync(cancellationToken);
+            return ToDetails(appointment);
+        }, cancellationToken);
+
+    public Task<AppointmentDetails> RecordPaymentAsync(
+        int appointmentId,
+        decimal amount,
+        PaymentMethod method,
+        string? reference,
+        CancellationToken cancellationToken = default) =>
+        appointments.WithSchedulingLockAsync(async () =>
+        {
+            var appointment = await FindAppointmentAsync(appointmentId, cancellationToken);
+            if (appointment.Status != AppointmentStatus.Completed)
+                throw new ConflictException("Payments can only be recorded for completed appointments.");
+
+            var nowUtc = timeProvider.GetUtcNow().UtcDateTime;
+            var wasMissingInvoice = appointment.Invoice is null;
+            Invoice invoice;
+            try
+            {
+                invoice = appointment.EnsureInvoiceIssued(FormatInvoiceNumber(appointment), nowUtc);
+            }
+            catch (InvalidOperationException exception)
+            {
+                throw new ConflictException(exception.Message);
+            }
+
+            var previousPaid = invoice.AmountPaid;
+            var previousStatus = invoice.PaymentStatus.ToString();
+            try
+            {
+                invoice.RecordPayment(amount, method, reference, nowUtc);
+            }
+            catch (InvalidOperationException exception)
+            {
+                throw new ConflictException(exception.Message);
+            }
+
+            if (wasMissingInvoice)
+            {
+                await StageInvoiceIssuedAuditAsync(appointment, invoice, cancellationToken);
+            }
+
+            var roundedAmount = decimal.Round(amount, 2, MidpointRounding.AwayFromZero);
+            await auditLogs.StageAsync(
+                "Invoice.PaymentRecorded",
+                "Appointment",
+                appointment.Id,
+                $"Recorded RM {roundedAmount:N2} ({method}) payment on invoice {invoice.InvoiceNumber}. Status: {invoice.PaymentStatus}.",
+                oldValues: new
+                {
+                    invoiceNumber = invoice.InvoiceNumber,
+                    amountPaid = previousPaid,
+                    paymentStatus = previousStatus
+                },
+                newValues: new
+                {
+                    invoiceNumber = invoice.InvoiceNumber,
+                    amountRecorded = roundedAmount,
+                    amountPaid = invoice.AmountPaid,
+                    balanceDue = invoice.BalanceDue,
+                    paymentStatus = invoice.PaymentStatus.ToString(),
+                    paymentMethod = invoice.PaymentMethod?.ToString(),
+                    paymentReference = invoice.PaymentReference
+                },
+                cancellationToken: cancellationToken);
             await unitOfWork.SaveChangesAsync(cancellationToken);
             return ToDetails(appointment);
         }, cancellationToken);
@@ -279,7 +594,10 @@ public sealed class AppointmentService(
         if (appointment.Status != AppointmentStatus.Completed)
             throw new ConflictException("Receipts can only be printed for completed appointments.");
 
-        var receiptNumber = $"TP-{appointment.ScheduledAtUtc.Add(MalaysiaOffset):yyyy}-{appointment.Id:D5}";
+        var receiptNumber = appointment.Invoice?.InvoiceNumber
+            ?? $"TP-{appointment.ScheduledAtUtc.Add(MalaysiaOffset):yyyy}-{appointment.Id:D5}";
+        var labourTotal = appointment.Services.Sum(service => service.Price);
+        var partsTotal = appointment.PartsUsed.Sum(part => part.LineTotal);
         await auditLogs.RecordAsync(
             "Appointment.ReceiptPrinted",
             "Appointment",
@@ -289,7 +607,9 @@ public sealed class AppointmentService(
             {
                 receiptNumber,
                 hasServiceRecord = appointment.ServiceRecord is not null,
-                totalPrice = appointment.Services.Sum(service => service.Price)
+                labourTotal,
+                partsTotal,
+                totalPrice = labourTotal + partsTotal
             },
             cancellationToken: cancellationToken);
     }
@@ -410,6 +730,14 @@ public sealed class AppointmentService(
     {
         var proposedStart = proposed.ScheduledAtUtc;
         var proposedEnd = proposed.EstimatedEndUtc ?? proposedStart.AddMinutes(30);
+        return PeakConcurrentBookings(proposedStart, proposedEnd, activeBookings);
+    }
+
+    private static int PeakConcurrentBookings(
+        DateTime proposedStart,
+        DateTime proposedEnd,
+        IReadOnlyList<Appointment> activeBookings)
+    {
         var events = new List<(DateTime Time, int Delta)>
         {
             (proposedStart, 1),
@@ -504,6 +832,29 @@ public sealed class AppointmentService(
         appointment.Notes
     };
 
+    private static string FormatInvoiceNumber(Appointment appointment) =>
+        $"INV-{appointment.ScheduledAtUtc.Add(MalaysiaOffset):yyyy}-{appointment.Id:D5}";
+
+    private Task StageInvoiceIssuedAuditAsync(
+        Appointment appointment,
+        Invoice invoice,
+        CancellationToken cancellationToken) =>
+        auditLogs.StageAsync(
+            "Invoice.Issued",
+            "Appointment",
+            appointment.Id,
+            $"Issued invoice {invoice.InvoiceNumber} (RM {invoice.TotalAmount:N2}) for appointment #{appointment.Id}.",
+            newValues: new
+            {
+                invoiceNumber = invoice.InvoiceNumber,
+                labourSubtotal = invoice.LabourSubtotal,
+                partsSubtotal = invoice.PartsSubtotal,
+                taxAmount = invoice.TaxAmount,
+                totalAmount = invoice.TotalAmount,
+                paymentStatus = invoice.PaymentStatus.ToString()
+            },
+            cancellationToken: cancellationToken);
+
     private static AppointmentDetails ToDetails(Appointment appointment) =>
         ToDetails(appointment, appointment.Customer, appointment.Vehicle);
 
@@ -518,5 +869,32 @@ public sealed class AppointmentService(
             appointment.ServiceRecord is { } record
                 ? new ServiceRecordDetails(record.Mileage, record.WorkPerformed, record.RecordedAtUtc, record.NextServiceMileage)
                 : null,
-            appointment.StatusReason);
+            appointment.StatusReason,
+            appointment.PartsUsed
+                .OrderBy(item => item.Id)
+                .Select(item => new AppointmentPartDetails(
+                    item.Id,
+                    item.PartId,
+                    item.Sku,
+                    item.Name,
+                    item.UnitPrice,
+                    item.Quantity,
+                    item.LineTotal))
+                .ToArray(),
+            appointment.Invoice is { } invoice
+                ? new InvoiceDetails(
+                    invoice.Id,
+                    invoice.InvoiceNumber,
+                    invoice.LabourSubtotal,
+                    invoice.PartsSubtotal,
+                    invoice.TaxAmount,
+                    invoice.TotalAmount,
+                    invoice.AmountPaid,
+                    invoice.BalanceDue,
+                    invoice.PaymentStatus.ToString(),
+                    invoice.PaymentMethod?.ToString(),
+                    invoice.PaymentReference,
+                    invoice.IssuedAtUtc,
+                    invoice.PaidAtUtc)
+                : null);
 }

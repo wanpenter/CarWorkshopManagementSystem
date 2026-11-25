@@ -37,6 +37,16 @@ internal sealed class AppointmentConfiguration : IEntityTypeConfiguration<Appoin
             .HasForeignKey(item => item.AppointmentId)
             .OnDelete(DeleteBehavior.Cascade);
 
+        builder.HasMany(appointment => appointment.PartsUsed)
+            .WithOne(item => item.Appointment)
+            .HasForeignKey(item => item.AppointmentId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        builder.HasOne(appointment => appointment.Invoice)
+            .WithOne(invoice => invoice.Appointment)
+            .HasForeignKey<Invoice>(invoice => invoice.AppointmentId)
+            .OnDelete(DeleteBehavior.Cascade);
+
         builder.Property(appointment => appointment.ServiceType)
             .HasMaxLength(100)
             .IsRequired();

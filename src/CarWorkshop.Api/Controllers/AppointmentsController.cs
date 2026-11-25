@@ -1,3 +1,4 @@
+using System.Globalization;
 using CarWorkshop.Api.Authentication;
 using CarWorkshop.Api.Requests;
 using CarWorkshop.Application.Contracts;
@@ -29,6 +30,23 @@ public sealed class AppointmentsController : ControllerBase
         return Ok(await _appointments.GetAllAsync(
             customerId,
             ParseOptionalStatus(status),
+            cancellationToken));
+    }
+
+    [HttpGet("availability")]
+    public async Task<ActionResult<DayAvailabilityDetails>> GetAvailability(
+        [FromQuery] string? date,
+        [FromQuery] int durationMinutes = 30,
+        [FromQuery] int? vehicleId = null,
+        [FromQuery] int? excludeAppointmentId = null,
+        CancellationToken cancellationToken = default)
+    {
+        var parsedDate = ParseDate(date);
+        return Ok(await _appointments.GetAvailableSlotsAsync(
+            parsedDate,
+            durationMinutes,
+            vehicleId,
+            excludeAppointmentId,
             cancellationToken));
     }
 
@@ -121,6 +139,67 @@ public sealed class AppointmentsController : ControllerBase
             request.WorkPerformed,
             request.NextServiceMileage,
             cancellationToken));
+    }
+
+    [HttpPost("{id:int}/parts")]
+    public async Task<ActionResult<AppointmentDetails>> AddPartUsage(
+        int id,
+        AddAppointmentPartRequest request,
+        CancellationToken cancellationToken)
+    {
+        return Ok(await _appointments.AddPartUsageAsync(
+            id,
+            request.PartId,
+            request.Quantity,
+            cancellationToken));
+    }
+
+    [HttpDelete("{id:int}/parts/{partLineId:int}")]
+    public async Task<ActionResult<AppointmentDetails>> RemovePartUsage(
+        int id,
+        int partLineId,
+        CancellationToken cancellationToken)
+    {
+        return Ok(await _appointments.RemovePartUsageAsync(
+            id,
+            partLineId,
+            cancellationToken));
+    }
+
+    [HttpPost("{id:int}/payment")]
+    public async Task<ActionResult<AppointmentDetails>> RecordPayment(
+        int id,
+        RecordPaymentRequest request,
+        CancellationToken cancellationToken)
+    {
+        return Ok(await _appointments.RecordPaymentAsync(
+            id,
+            request.Amount,
+            ParseRequiredPaymentMethod(request.Method),
+            request.Reference,
+            cancellationToken));
+    }
+
+    private static DateOnly ParseDate(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value) ||
+            !DateOnly.TryParseExact(value.Trim(), "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsed))
+        {
+            throw new ArgumentException("Date must be in YYYY-MM-DD format.", "date");
+        }
+
+        return parsed;
+    }
+
+    private static PaymentMethod ParseRequiredPaymentMethod(string value)
+    {
+        if (!Enum.TryParse<PaymentMethod>(value, ignoreCase: false, out var method) ||
+            !Enum.IsDefined(method))
+        {
+            throw new ArgumentException("Payment method is invalid.", "method");
+        }
+
+        return method;
     }
 
     private static AppointmentStatus? ParseOptionalStatus(string? value)

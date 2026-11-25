@@ -47,6 +47,8 @@ public sealed class Appointment
 
     public ICollection<AppointmentService> Services { get; private set; } = new List<AppointmentService>();
 
+    public ICollection<AppointmentPart> PartsUsed { get; private set; } = new List<AppointmentPart>();
+
     public string ServiceType { get; private set; } = string.Empty;
 
     public string? Notes { get; private set; }
@@ -58,6 +60,51 @@ public sealed class Appointment
     public DateTime CreatedAt { get; private set; }
 
     public ServiceRecord? ServiceRecord { get; private set; }
+
+    public Invoice? Invoice { get; private set; }
+
+    public AppointmentPart AddPartUsage(Part part, int quantity)
+    {
+        ArgumentNullException.ThrowIfNull(part);
+        if (Status is not (AppointmentStatus.InProgress or AppointmentStatus.Completed))
+            throw new InvalidOperationException("Parts can only be added when work is in progress or completed.");
+        if (Invoice is { AmountPaid: > 0m } || Invoice?.PaymentStatus == PaymentStatus.Voided)
+            throw new InvalidOperationException("Parts cannot be modified after payment has been recorded.");
+
+        var line = new AppointmentPart(part, quantity);
+        part.DeductStock(quantity);
+        PartsUsed.Add(line);
+        Invoice?.RecalculateTotals(
+            Services.Sum(service => service.Price),
+            PartsUsed.Sum(item => item.LineTotal));
+        return line;
+    }
+
+    public AppointmentPart RemovePartUsage(int appointmentPartId, Part? part)
+    {
+        if (Status is not (AppointmentStatus.InProgress or AppointmentStatus.Completed))
+            throw new InvalidOperationException("Parts can only be modified when work is in progress or completed.");
+        if (Invoice is { AmountPaid: > 0m } || Invoice?.PaymentStatus == PaymentStatus.Voided)
+            throw new InvalidOperationException("Parts cannot be modified after payment has been recorded.");
+
+        var line = PartsUsed.FirstOrDefault(item => item.Id == appointmentPartId)
+            ?? throw new KeyNotFoundException($"Part usage #{appointmentPartId} was not found on this appointment.");
+        PartsUsed.Remove(line);
+        part?.Restock(line.Quantity);
+        Invoice?.RecalculateTotals(
+            Services.Sum(service => service.Price),
+            PartsUsed.Sum(item => item.LineTotal));
+        return line;
+    }
+
+    public Invoice EnsureInvoiceIssued(string invoiceNumber, DateTime issuedAtUtc)
+    {
+        if (Status != AppointmentStatus.Completed)
+            throw new InvalidOperationException("Complete the appointment before issuing an invoice.");
+
+        Invoice ??= Invoice.IssueFor(this, invoiceNumber, issuedAtUtc);
+        return Invoice;
+    }
 
     public void TransitionStatus(AppointmentStatus nextStatus, string? reason, DateTime nowUtc)
     {

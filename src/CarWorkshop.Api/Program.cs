@@ -9,6 +9,8 @@ using CarWorkshop.Infrastructure.Data;
 using CarWorkshop.Infrastructure.Repositories;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -22,6 +24,26 @@ var cookieSecurePolicy = isDevelopmentOrTesting
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
 builder.Services.AddDbContext<CarWorkshopDbContext>(options =>
     options.UseMySql(connectionString, new MySqlServerVersion(new Version(8, 0, 46))));
+
+var dataProtectionKeysPath = Environment.GetEnvironmentVariable("WORKSHOP_DATA_PROTECTION_KEYS_PATH");
+if (!string.IsNullOrWhiteSpace(dataProtectionKeysPath))
+{
+    var keyDirectory = new DirectoryInfo(dataProtectionKeysPath);
+    keyDirectory.Create();
+    builder.Services.AddDataProtection()
+        .SetApplicationName("TorquePro.CarWorkshop")
+        .PersistKeysToFileSystem(keyDirectory);
+}
+
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+    if (builder.Configuration.GetValue<bool>("ReverseProxy:TrustForwardedHeaders"))
+    {
+        options.KnownNetworks.Clear();
+        options.KnownProxies.Clear();
+    }
+});
 
 builder.Services.AddOpenApi();
 builder.Services.AddControllersWithViews(options =>
@@ -94,6 +116,7 @@ builder.Services.AddScoped<VehicleService>();
 builder.Services.AddScoped<CarWorkshop.Application.Services.AppointmentService>();
 builder.Services.AddScoped<ServiceCatalogue>();
 builder.Services.AddScoped<MechanicService>();
+builder.Services.AddScoped<PartService>();
 builder.Services.AddScoped<AuditLogService>();
 builder.Services.AddScoped<WorkshopAuthService>();
 builder.Services.AddScoped<WorkshopCookieEvents>();
@@ -103,6 +126,7 @@ builder.Services.AddScoped<IVehicleRepository, VehicleRepository>();
 builder.Services.AddScoped<IAppointmentRepository, AppointmentRepository>();
 builder.Services.AddScoped<IServiceRepository, ServiceRepository>();
 builder.Services.AddScoped<IMechanicRepository, MechanicRepository>();
+builder.Services.AddScoped<IPartRepository, PartRepository>();
 builder.Services.AddScoped<IAuditLogRepository, AuditLogRepository>();
 builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
 builder.Services.AddSingleton(TimeProvider.System);
@@ -137,12 +161,31 @@ builder.Services.AddCors(options => options.AddPolicy("Frontend", policy =>
     {
         policy.WithOrigins(frontendOrigins)
             .WithMethods("GET", "POST", "PUT", "DELETE")
-            .WithHeaders("Content-Type", "X-CSRF-TOKEN")
+            .WithHeaders("Content-Type", "X-CSRF-TOKEN", SecurityHeadersMiddleware.RequestIdHeaderName)
+            .WithExposedHeaders(SecurityHeadersMiddleware.RequestIdHeaderName)
             .AllowCredentials();
     }
 }));
 
 var app = builder.Build();
+
+if (args.Contains("--migrate", StringComparer.Ordinal))
+{
+    try
+    {
+        await using var scope = app.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<CarWorkshopDbContext>();
+        await db.Database.MigrateAsync();
+        Console.WriteLine("Database migrations applied successfully.");
+        return;
+    }
+    catch (Exception exception)
+    {
+        Console.Error.WriteLine($"Database migration failed: {exception.Message}");
+        Environment.ExitCode = 1;
+        return;
+    }
+}
 
 if (args.Contains("--bootstrap-admin", StringComparer.Ordinal))
 {
@@ -177,11 +220,15 @@ if (app.Environment.IsDevelopment())
     app.MapOpenApi();
 }
 
+app.UseForwardedHeaders();
+
 if (!app.Environment.IsDevelopment() && !app.Environment.IsEnvironment("Testing"))
 {
+    app.UseHsts();
     app.UseHttpsRedirection();
 }
 
+app.UseMiddleware<SecurityHeadersMiddleware>();
 app.UseMiddleware<ApiExceptionMiddleware>();
 app.UseRouting();
 app.UseCors("Frontend");
@@ -200,6 +247,25 @@ app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
 app.MapGet("/api/health", () => Results.Ok(new { status = "ok" }))
+    .AllowAnonymous();
+app.MapGet("/api/health/ready", async (CarWorkshopDbContext db, CancellationToken cancellationToken) =>
+    {
+        try
+        {
+            var canConnect = await db.Database.CanConnectAsync(cancellationToken);
+            return canConnect
+                ? Results.Ok(new { status = "ready", database = "reachable" })
+                : Results.Json(
+                    new { status = "unhealthy", database = "unreachable" },
+                    statusCode: StatusCodes.Status503ServiceUnavailable);
+        }
+        catch
+        {
+            return Results.Json(
+                new { status = "unhealthy", database = "unreachable" },
+                statusCode: StatusCodes.Status503ServiceUnavailable);
+        }
+    })
     .AllowAnonymous();
 
 await app.RunAsync();

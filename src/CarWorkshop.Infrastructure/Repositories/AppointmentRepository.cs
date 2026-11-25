@@ -24,6 +24,8 @@ public sealed class AppointmentRepository : IAppointmentRepository
             .Include(appointment => appointment.Customer)
             .Include(appointment => appointment.Vehicle)
             .Include(appointment => appointment.Services)
+            .Include(appointment => appointment.PartsUsed)
+            .Include(appointment => appointment.Invoice)
             .Include(appointment => appointment.Mechanic)
             .AsQueryable();
 
@@ -51,6 +53,8 @@ public sealed class AppointmentRepository : IAppointmentRepository
             .Include(appointment => appointment.Customer)
             .Include(appointment => appointment.Vehicle)
             .Include(appointment => appointment.Services)
+            .Include(appointment => appointment.PartsUsed)
+            .Include(appointment => appointment.Invoice)
             .Include(appointment => appointment.Mechanic)
             .SingleOrDefaultAsync(appointment => appointment.Id == id, cancellationToken);
     }
