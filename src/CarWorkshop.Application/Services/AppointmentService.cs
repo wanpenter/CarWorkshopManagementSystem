@@ -220,12 +220,16 @@ public sealed class AppointmentService(
             if (appointment.Status is not (AppointmentStatus.Requested or AppointmentStatus.Confirmed or AppointmentStatus.Scheduled))
                 throw new ConflictException(
                     "Only pending or confirmed appointments can be cancelled online. Contact the workshop for jobs already in progress.");
+            var nowUtc = timeProvider.GetUtcNow().UtcDateTime;
+            if (appointment.ScheduledAtUtc - nowUtc < TimeSpan.FromHours(24))
+                throw new ConflictException(
+                    "Online cancellation is only available at least 24 hours before the appointment. Contact the workshop desk for late changes.");
 
             var oldStatus = appointment.Status;
             var oldValues = AppointmentSnapshot(appointment);
             try
             {
-                appointment.TransitionStatus(AppointmentStatus.Cancelled, reason, timeProvider.GetUtcNow().UtcDateTime);
+                appointment.TransitionStatus(AppointmentStatus.Cancelled, reason, nowUtc);
             }
             catch (InvalidOperationException exception)
             {

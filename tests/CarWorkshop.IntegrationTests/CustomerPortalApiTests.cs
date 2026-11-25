@@ -289,6 +289,48 @@ public sealed class CustomerPortalApiTests(BookingApiFactory app) : IClassFixtur
     }
 
     [Fact]
+    public async Task Customer_cannot_cancel_booking_within_24_hours_but_staff_still_can()
+    {
+        var suffix = Guid.NewGuid().ToString("N")[..8];
+        var seed = await app.SeedAsync(activeService: true);
+        using var customer = await RegisterCustomerAsync($"late.{suffix}", "Late Cancel Customer", "0146667777", "Customer!Pass#2039");
+
+        using var vehicleResp = await customer.Client.PostAsJsonAsync("/api/portal/vehicles", new
+        {
+            registrationNumber = $"LAT{suffix[..5].ToUpperInvariant()}",
+            make = "Honda",
+            model = "Civic",
+            year = 2022,
+            mileage = 30000,
+            isActive = true
+        });
+        var vehicleId = (await vehicleResp.Content.ReadFromJsonAsync<IdPayload>())!.Id;
+
+        // Clock is fixed at 2039-01-01 00:00 UTC (08:00 MYT); 01:00 UTC is 09:00 MYT (1 hour away -> < 24h)
+        var sameDaySlotUtc = new DateTime(2039, 1, 1, 1, 0, 0, DateTimeKind.Utc);
+        using var bookResp = await customer.Client.PostAsJsonAsync("/api/portal/appointments", new
+        {
+            vehicleId,
+            scheduledAtUtc = sameDaySlotUtc,
+            serviceIds = new[] { seed.ServiceId }
+        });
+        Assert.Equal(HttpStatusCode.Created, bookResp.StatusCode);
+        var bookingId = (await bookResp.Content.ReadFromJsonAsync<IdPayload>())!.Id;
+
+        using var customerCancel = await customer.Client.PostAsJsonAsync($"/api/portal/appointments/{bookingId}/cancel", new
+        {
+            reason = "Last minute change"
+        });
+        Assert.Equal(HttpStatusCode.Conflict, customerCancel.StatusCode);
+
+        using var staffCancel = await app.Client.PostAsJsonAsync($"/api/appointments/{bookingId}/status", new
+        {
+            status = "Cancelled",
+            reason = "Customer called workshop desk"
+        });
+        Assert.Equal(HttpStatusCode.OK, staffCancel.StatusCode);
+    }
+    [Fact]
     public async Task Enterprise_portal_login_endpoints_enforce_role_audience_without_enumeration_and_log_audit()
     {
         var suffix = Guid.NewGuid().ToString("N")[..8];
