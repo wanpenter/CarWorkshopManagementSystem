@@ -1,153 +1,228 @@
-# Car Workshop Management System V2
+# TorquePro — Car Workshop Management System & Customer Portal
 
-Local development stack: React, Tailwind CSS, ASP.NET Core, Entity Framework Core, and MySQL.
+A full-stack, enterprise-style workshop operations platform and customer self-booking portal built with **ASP.NET Core 9**, **React 19**, **Tailwind CSS 4**, **Entity Framework Core**, and **MySQL 8**.
 
-Staff now sign in before viewing workshop records. Admins also manage login
-accounts, roles, active status, and password resets. Read [AUTHENTICATION.md](AUTHENTICATION.md)
-for first-Admin setup, the role matrix, session behavior, and deployment requirements.
+Designed around **Clean / Layered Architecture**, **3-role RBAC across dual portals**, **concurrency-safe mechanic & capacity scheduling**, and an **append-only admin audit trail**, with automated unit, real-MySQL integration, and frontend test suites wired into GitHub Actions CI.
 
-Staff can create and edit customers, register vehicles under an owner, change
-ownership, and search and filter records. Each vehicle has a unique registration
-number. A customer with vehicles cannot be deleted until those vehicles are moved
-or removed. The service catalogue records current prices and estimated durations.
-Appointments link a customer and vehicle to one or more services and keep a copy of
-each selected service's name, price, and duration at booking time.
+![.NET 9](https://img.shields.io/badge/.NET-9.0-512BD4?logo=dotnet&logoColor=white)
+![React 19](https://img.shields.io/badge/React-19-149ECA?logo=react&logoColor=white)
+![Tailwind CSS 4](https://img.shields.io/badge/Tailwind_CSS-4-06B6D4?logo=tailwindcss&logoColor=white)
+![MySQL 8](https://img.shields.io/badge/MySQL-8.0-4479A1?logo=mysql&logoColor=white)
+![CI](https://img.shields.io/badge/CI-GitHub_Actions-2088FF?logo=githubactions&logoColor=white)
 
-## Run locally
+---
 
-Start MySQL with the database configured for `CarWorkshop.Api`. In Visual Studio,
-right-click `CarWorkshop.Api` and select **Manage User Secrets**. Set
-`ConnectionStrings:DefaultConnection` to your local MySQL connection string in
-the secrets editor. Keep the password out of `appsettings.json` and Git. The
-database account must have permission to apply migrations. Apply migrations,
-then open two terminals at the repository root.
+## Interface Showcase
 
-Database (on first setup and after pulling new migrations):
+<table>
+  <tr>
+    <td width="50%">
+      <strong>Customer Portal Sign In (<code>/</code>)</strong><br />
+      <img src="docs/screenshots/customer-login-desktop.png" alt="TorquePro Customer Portal Login" />
+    </td>
+    <td width="50%">
+      <strong>Staff &amp; Admin Operations Sign In (<code>/staff</code>)</strong><br />
+      <img src="docs/screenshots/staff-login-desktop.png" alt="TorquePro Staff and Admin Portal Login" />
+    </td>
+  </tr>
+  <tr>
+    <td width="50%">
+      <strong>Workshop Operations Dashboard</strong><br />
+      <img src="docs/screenshots/staff-dashboard-desktop.png" alt="TorquePro Staff Dashboard" />
+    </td>
+    <td width="50%">
+      <strong>Customer Self-Booking &amp; Tracking Portal</strong><br />
+      <img src="docs/screenshots/customer-portal-desktop.png" alt="TorquePro Customer Portal" />
+    </td>
+  </tr>
+</table>
 
-```powershell
-dotnet ef database update --project src/CarWorkshop.Infrastructure --startup-project src/CarWorkshop.Api
+---
+
+## Key Engineering Highlights
+
+* **Clean / Layered Architecture**: Strict separation across `Domain`, `Application`, `Infrastructure`, `Api`, and `Web` using repository interfaces, domain entity invariants, and Unit of Work persistence.
+* **Dual-Portal Enterprise Authentication & Anti-IDOR**:
+  * Separated public **Customer Portal (`/`)** and restricted **Staff & Admin Portal (`/staff`)** with role-scoped login endpoints (`/api/auth/customer/login` and `/api/auth/staff/login`).
+  * Server-side customer ownership resolution on every `/api/portal/*` call prevents Insecure Direct Object Reference (IDOR) across customer records.
+* **Defense-in-Depth Security**:
+  * `HttpOnly`, `SameSite=Strict` cookie sessions backed by server-side `WorkshopSessions` revocation (8-hour fixed lifetime, zero credentials in `localStorage`/`sessionStorage`).
+  * Per-request CSRF validation (`X-CSRF-TOKEN`), constant-time dummy password verification (mitigates timing-based username enumeration), row-level `SELECT ... FOR UPDATE` lockout protection (5 failed attempts → 15-minute lock), and per-IP fixed-window rate limiting (60 req/min).
+* **Concurrency-Safe Workshop Scheduling & Live Slot Availability**:
+  * Shared MySQL advisory locks serialize booking creation, rescheduling, mechanic assignments, and stock adjustments to prevent overlapping mechanic jobs, overlapping vehicle bookings, and overbooking beyond active-mechanic slot capacity and daily caps.
+  * Live availability API (`GET /api/portal/availability` and `GET /api/appointments/availability`) powers the interactive 30-minute MYT slot picker (`08:30–17:30`) across both portals, highlighting remaining bays and exact conflict reasons (`Full`, `Vehicle busy`, `Past 5:30 PM`, `Day full`).
+* **Spare Parts Inventory, Invoicing & Payment Tracking**:
+  * Full parts catalogue (`/api/parts`) with uppercase SKU normalization, unit pricing, manual stock adjustments (`+` / `-` with audit trail), and automatic low-stock threshold alerts.
+  * Adding or removing spare parts on `InProgress` / `Completed` appointments snapshots SKU, name, and unit price while atomically deducting or restoring inventory stock.
+  * Completing a job automatically issues an itemized invoice (`INV-YYYY-00001`) combining Labour + Spare Parts, supports partial and full counter payment recording (`Cash`, `DuitNow QR`, `Card`, `Online Transfer`), locks part modifications after payment, feeds live Dashboard revenue/outstanding/low-stock summaries, and renders printable PDF invoices/receipts.
+* **Production Hardening & End-to-End Audit Trail**:
+  * Security response headers (`X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy`), per-request `X-Request-Id` correlation logging, reverse-proxy `ForwardedHeaders` support, persistent Data Protection keys (`WORKSHOP_DATA_PROTECTION_KEYS_PATH`), readiness probe (`GET /api/health/ready`), and `--migrate` CLI command.
+  * Append-only **Admin Audit Log** recording workshop mutations, status changes, part usage, invoice issuance, payment records, failed sign-ins, and cross-portal access denials with before/after JSON diff snapshots and pagination.
+* **Automated Quality Gates**:
+  * Domain unit tests (`xUnit`), real MySQL 8 integration tests (`WebApplicationFactory` + isolated temporary schemas), Node frontend tests, Playwright browser verification scripts, and GitHub Actions CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)).
+
+---
+
+## System Architecture
+
+```mermaid
+flowchart LR
+    subgraph Client ["Browser (React 19 + Vite + Tailwind CSS)"]
+        CP["Customer Portal (/)"]
+        SP["Staff & Admin Portal (/staff)"]
+    end
+
+    subgraph Api ["CarWorkshop.Api (ASP.NET Core 9)"]
+        MW["Middleware: Exception Handler · CORS · Rate Limiter · CSRF · Cookie Auth"]
+        CTRL["Controllers: Auth · Portal · Appointments · Customers · Vehicles · Services · Mechanics · Users · AuditLogs"]
+    end
+
+    subgraph Core ["Application & Domain Layers"]
+        APP["Use-Case Services & DTO Contracts"]
+        DOM["Domain Entities & Business Rules"]
+    end
+
+    subgraph Infra ["CarWorkshop.Infrastructure"]
+        EF["EF Core 9 Repositories & Unit of Work"]
+        DB[("MySQL 8.0\nDomain Data · Sessions · Audit Logs · Advisory Locks")]
+    end
+
+    CP --> MW
+    SP --> MW
+    MW --> CTRL --> APP --> DOM
+    APP --> EF --> DB
 ```
 
-API:
+---
+
+## Role & Capability Matrix
+
+| Module / Action | Customer (`/`) | Staff (`/staff`) | Admin (`/staff`) |
+| --- | :---: | :---: | :---: |
+| Self-registration & profile management | Own profile | — | — |
+| Vehicle registration, edit & service history | Own vehicles | All vehicles (incl. ownership transfer) | All vehicles |
+| Service catalogue management | Browse active | Create, edit & activate/deactivate | Create, edit & activate/deactivate |
+| Appointment booking, live slot picker & 1-click status workflow | Pick live slots, book & cancel own | Live slots, full lifecycle & conflict checks | Live slots, full lifecycle & conflict checks |
+| Mechanic management & job assignment | View assigned | Manage mechanics & assign jobs | Manage mechanics & assign jobs |
+| Spare parts inventory & job part usage | View parts used on own jobs | Full inventory, stock adjust & job parts | Full inventory, stock adjust & job parts |
+| Invoicing, payment recording & printable PDF invoice | View own invoice & print receipt | Auto-invoice, record payments & print | Auto-invoice, record payments & print |
+| Service record & odometer logging | View history | Record completed work & mileage | Record completed work & mileage |
+| Staff/Admin user accounts & password resets | — | Change own password | Full account & reset management |
+| Append-only Audit Log with diff viewer | — | — | Search, filter & inspect |
+
+See [AUTHENTICATION.md](AUTHENTICATION.md) for the complete security architecture, session revocation rules, and production deployment checklist.
+
+---
+
+## Tech Stack
+
+| Layer | Technology |
+| --- | --- |
+| **Frontend** | React 19, Vite 8, Tailwind CSS 4, Native `node:test` |
+| **Backend API** | C# / .NET 9, ASP.NET Core Web API, OpenAPI |
+| **Data & ORM** | Entity Framework Core 9, Pomelo MySQL Provider, MySQL 8.0 |
+| **Security** | ASP.NET Core Cookie Auth, Data Protection, Identity `PasswordHasher`, Antiforgery (CSRF), Rate Limiting |
+| **Testing & CI** | xUnit, Real MySQL Integration Tests, Playwright E2E Scripts, GitHub Actions |
+
+---
+
+## Project Structure
+
+```text
+├── .github/workflows/ci.yml        # Automated CI: backend build, unit + MySQL integration tests, frontend tests & build
+├── docs/screenshots/               # Showcase screenshots
+├── scripts/                        # Verification & Playwright browser E2E scripts
+├── src/
+│   ├── CarWorkshop.Domain/         # Core entities, value invariants, and domain rules
+│   ├── CarWorkshop.Application/    # Use-case services, DTO contracts, and repository interfaces
+│   ├── CarWorkshop.Infrastructure/ # EF Core DbContext, entity configurations, migrations, MySQL repositories
+│   ├── CarWorkshop.Api/            # HTTP controllers, auth/CSRF middleware, validation, DI wiring
+│   └── CarWorkshop.Web/            # React 19 SPA (Customer Portal, Staff & Admin Portal, Tailwind UI)
+└── tests/
+    ├── CarWorkshop.UnitTests/      # Domain & business rule unit tests
+    └── CarWorkshop.IntegrationTests/ # End-to-end API + real MySQL concurrency & security tests
+```
+
+---
+
+## API Overview
+
+| Domain | Endpoints |
+| --- | --- |
+| **Authentication** | `GET /api/auth/csrf`, `GET /api/auth/me`, `POST /api/auth/register`, `POST /api/auth/customer/login`, `POST /api/auth/staff/login`, `POST /api/auth/logout`, `POST /api/auth/change-password` |
+| **Customer Portal** | `GET/PUT /api/portal/profile`, `GET /api/portal/services`, `GET /api/portal/availability`, `GET/POST/PUT/DELETE /api/portal/vehicles`, `GET/POST /api/portal/appointments`, `POST /api/portal/appointments/{id}/cancel`, `POST /api/portal/appointments/{id}/receipt-printed` |
+| **Workshop Operations** | `/api/customers`, `/api/customers/{id}/vehicles`, `/api/vehicles`, `/api/services`, `/api/parts`, `POST /api/parts/{id}/adjust-stock`, `/api/mechanics`, `/api/appointments`, `GET /api/appointments/availability`, `POST /api/appointments/{id}/status`, `PUT /api/appointments/{id}/mechanic`, `POST /api/appointments/{id}/service-record`, `POST/DELETE /api/appointments/{id}/parts`, `POST /api/appointments/{id}/payment`, `POST /api/appointments/{id}/receipt-printed` |
+| **Administration & Ops** | `GET/POST/PUT /api/users`, `POST /api/users/{id}/reset-password`, `GET /api/audit-logs`, `GET /api/health`, `GET /api/health/ready` |
+
+---
+
+## Getting Started (Local Development)
+
+### Prerequisites
+
+* [.NET 9 SDK](https://dotnet.microsoft.com/download/dotnet/9.0)
+* [Node.js 22+](https://nodejs.org/) (CI uses Node 24)
+* [MySQL 8.0](https://dev.mysql.com/downloads/mysql/)
+
+### 1. Configure Database Connection
+
+Store your MySQL connection string in .NET User Secrets (never commit credentials into `appsettings.json`):
 
 ```powershell
+dotnet user-secrets set "ConnectionStrings:DefaultConnection" "Server=127.0.0.1;Port=3306;Database=car_workshop;User ID=root;Password=YOUR_PASSWORD;" --project src/CarWorkshop.Api
+```
+
+### 2. Apply Migrations & Bootstrap the First Admin
+
+```powershell
+# Apply EF Core migrations
+dotnet ef database update --project src/CarWorkshop.Infrastructure --startup-project src/CarWorkshop.Api
+
+# One-time interactive Admin bootstrap (creates first Admin only when no accounts exist)
+$env:WORKSHOP_ADMIN_USERNAME = Read-Host 'Administrator username'
+$secret = Read-Host 'Administrator password (12 to 128 characters)' -AsSecureString
+$env:WORKSHOP_ADMIN_PASSWORD = [Net.NetworkCredential]::new('', $secret).Password
+try {
+    dotnet run --project src/CarWorkshop.Api/CarWorkshop.Api.csproj --launch-profile http -- --bootstrap-admin
+} finally {
+    Remove-Item Env:WORKSHOP_ADMIN_USERNAME, Env:WORKSHOP_ADMIN_PASSWORD -ErrorAction SilentlyContinue
+    $secret = $null
+}
+```
+
+### 3. Run API & Frontend
+
+Open two terminals from the repository root:
+
+```powershell
+# Terminal 1 — ASP.NET Core API (http://127.0.0.1:5272)
 dotnet run --project src/CarWorkshop.Api/CarWorkshop.Api.csproj --launch-profile http
 ```
 
-Frontend:
-
 ```powershell
+# Terminal 2 — React + Vite Frontend (http://127.0.0.1:4173)
 Set-Location src/CarWorkshop.Web
 npm ci
 npm run dev
 ```
 
-Open http://127.0.0.1:4173. In local development, the frontend calls `/api` on its own address and Vite forwards those requests to the C# API at http://127.0.0.1:5272. API settings can override the address in the browser. Set `VITE_API_BASE_URL` in the frontend's `.env.local` only when using a separately hosted API; restart Vite after changing it. Only public configuration belongs in `VITE_` variables because these values are sent to the browser.
+* **Customer Portal**: `http://127.0.0.1:4173/`
+* **Staff & Admin Portal**: `http://127.0.0.1:4173/staff`
 
-## Project structure
+> Vite automatically proxies `/api` requests to `http://127.0.0.1:5272` in local development. Set `VITE_API_BASE_URL` in `src/CarWorkshop.Web/.env.local` only when targeting a separately hosted API.
 
-| Project | Responsibility |
-| --- | --- |
-| `src/CarWorkshop.Web` | React components, Tailwind styling, browser state, API client |
-| `src/CarWorkshop.Api` | HTTP endpoints, input validation, dependency registration |
-| `src/CarWorkshop.Application` | Customer, vehicle, service, and appointment use cases, contracts, and repository interfaces |
-| `src/CarWorkshop.Domain` | Entities and core business rules |
-| `src/CarWorkshop.Infrastructure` | EF Core context, migrations, MySQL persistence |
-| `tests` | Backend unit and integration test projects |
+---
 
-The browser calls the API. Customer, vehicle, service, and appointment requests pass through the API,
-Application, Domain, and Infrastructure layers before EF Core writes to MySQL.
-The older `/api/cars` endpoint remains for its existing Brand/Model records. Those
-rows lack an owner and registration number, so they are preserved separately and
-are not automatically converted into vehicles. The old `CarService` still lives
-in Api; new features use the layered structure.
-
-The API routes include `/api/customers`, `/api/customers/{id}`,
-`/api/customers/{id}/vehicles`, `/api/vehicles`, and `/api/vehicles/{id}`.
-`GET /api/vehicles?customerId={id}` filters vehicles by owner. Customer and
-vehicle writes use JSON. Validation returns HTTP 400, missing records 404,
-and duplicate registrations or protected customer deletion 409.
-
-Services use `/api/services` and `/api/services/{id}`. New bookings select one or
-more active services by ID. Inactive services cannot be added to new bookings, but
-existing bookings retain their service snapshots. Appointments use
-`/api/appointments` and `/api/appointments/{id}`. New bookings start as `Requested`.
-Staff can confirm or reject them; confirmed bookings can move to `InProgress`, then
-`Completed`, or be cancelled before completion using the one-click workflow actions
-(`POST /api/appointments/{id}/status`) with confirmation dialogs and optional
-cancellation/rejection reasons. Completed appointments include a printable
-**Service receipt** preview (`Print / Save as PDF`) that logs `Appointment.ReceiptPrinted`
-(`POST /api/appointments/{id}/receipt-printed`). Apply `AddAppointmentStatusReason`
-alongside `AddServiceRecords` and `AddAuditLogs` before starting this version. The selected vehicle must belong to
-the selected customer. Booking starts must be on a 30-minute interval between
-08:30 and 17:00 Malaysia time; the estimated work must finish by 17:30. At most 10
-active bookings are allowed per day, and the same vehicle cannot have overlapping
-active bookings. Appointment times are stored in UTC. Customers and vehicles linked
-to appointments are protected from deletion to preserve history. Appointments from
-the earlier free-text service version remain readable.
-
-Mechanics use `/api/mechanics` for listing and creation, and `/api/mechanics/{id}`
-for reading and updating details or active status. Assign or replace an appointment's
-mechanic with `PUT /api/appointments/{id}/mechanic` and JSON `{"mechanicId": 1}`.
-The mechanic must exist and be active; the appointment must be Confirmed or Scheduled
-and have an estimated end time. Appointment responses include nullable `mechanicId`
-and `mechanicName`. Existing unassigned bookings remain valid.
-
-Assignments and appointment updates reject overlapping jobs for the same mechanic,
-including changes to the start time or service duration. Jobs ending exactly when
-another begins are allowed. Cancelled and Rejected appointments do not block the
-mechanic's schedule. Failed assignments or reschedules leave saved data unchanged.
-A shared MySQL scheduling lock serializes assignment and appointment updates before
-reading the booking; the existing daily lock still protects booking capacity.
-This favors simple, correct scheduling over parallel updates across unrelated days.
-Deactivation prevents new assignments and preserves existing assignments and history.
-
-The Mechanics tab supports creating and editing staff, searching by name or phone,
-and activating or deactivating mechanics. In Appointments, edit a confirmed or
-scheduled booking to assign or replace its mechanic. Save booking changes before
-assigning staff. The API rejects overlapping jobs and the editor displays the
-conflict while keeping the booking open. Assigned names appear in the appointment
-list and remain visible in completed records.
-
-Login and Admin/Staff access control protect the API and frontend. Configure the
-first Admin before normal use.
-
-After completing an appointment, open it and select **Record service**. Enter the
-mileage and tick the services performed. Choose additional services from the
-catalogue or describe other work in the optional notes. Both Staff and Admin can save one
-record per completed appointment. In **Vehicles**, select **History** on a vehicle
-row to view its **Service history**. Earlier completed appointments can receive records too. Apply
-the `AddServiceRecords` and `AddAuditLogs` migrations before starting this version of the API.
-
-An append-only **Audit log** records workshop changes (appointments, status transitions,
-mechanic assignments, service records, customers, vehicles, services, mechanics, user
-management, password resets/changes, and failed sign-in attempts) with before/after value
-snapshots and no password leakage. Admins can inspect, search, filter, and page through
-entries via `GET /api/audit-logs` or the **Audit log** tab.
-
-## Verify
+## Running Tests & Verification
 
 ```powershell
+# Backend domain & business rule unit tests
 dotnet test tests/CarWorkshop.UnitTests/CarWorkshop.UnitTests.csproj -m:1
-pwsh -NoProfile -File scripts/Verify-CustomerVehicle.ps1 -Credential (Get-Credential)
+
+# Frontend unit tests & production build
 Set-Location src/CarWorkshop.Web
 npm test
 npm run build
 ```
 
-The PowerShell 7 verification script requires a running API and MySQL. It creates
-temporary customers and vehicles, checks the real database behavior, then removes
-only those test records. Its checks include a concurrent duplicate registration
-attempt and preservation of legacy `/api/cars` data.
-
-Automated booking API/database checks are in
-[`tests/CarWorkshop.IntegrationTests`](tests/CarWorkshop.IntegrationTests/README.md).
-They require `WORKSHOP_TEST_MYSQL` pointing to a dedicated MySQL test server and
-create their own temporary database. GitHub Actions runs the domain tests, real
-MySQL integration tests, frontend tests, and production builds on pushes and pull
-requests. Backend test reports are attached to each workflow run.
-
-Development CORS allows only configured local frontend origins on port 4173, with
-cookie credentials and the CSRF header. The HTTPS profile requires a trusted
-developer certificate; the commands above use the HTTP development profile.
-Use HTTPS and the same site for frontend/API when deploying.
+For real-MySQL API integration tests and Playwright E2E scenarios, see [`tests/CarWorkshop.IntegrationTests/README.md`](tests/CarWorkshop.IntegrationTests/README.md) and [`AUTHENTICATION.md`](AUTHENTICATION.md).
