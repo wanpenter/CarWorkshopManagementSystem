@@ -1,0 +1,61 @@
+services:
+  db:
+    image: mysql:8.0
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD in .env}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-car_workshop}
+      MYSQL_USER: ${MYSQL_USER:-workshop}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?Set MYSQL_PASSWORD in .env}
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -u root -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  migrate:
+    build:
+      context: .
+      dockerfile: src/CarWorkshop.Api/Dockerfile
+    image: torquepro-api:local
+    restart: "no"
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      ConnectionStrings__DefaultConnection: "Server=db;Port=3306;Database=${MYSQL_DATABASE:-car_workshop};User ID=${MYSQL_USER:-workshop};Password=${MYSQL_PASSWORD};SslMode=Required;"
+    command: ["--migrate"]
+
+  api:
+    build:
+      context: .
+      dockerfile: src/CarWorkshop.Api/Dockerfile
+    image: torquepro-api:local
+    restart: unless-stopped
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
+      ConnectionStrings__DefaultConnection: "Server=db;Port=3306;Database=${MYSQL_DATABASE:-car_workshop};User ID=${MYSQL_USER:-workshop};Password=${MYSQL_PASSWORD};SslMode=Required;"
+      WORKSHOP_DATA_PROTECTION_KEYS_PATH: /app/keys
+      ReverseProxy__TrustForwardedHeaders: "true"
+    volumes:
+      - dataprotection_keys:/app/keys
+
+  web:
+    build:
+      context: .
+      dockerfile: src/CarWorkshop.Web/Dockerfile
+    image: torquepro-web:local
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "${WEB_PORT:-8080}:80"
+
+volumes:
+  mysql_data:
+  dataprotection_keys:
