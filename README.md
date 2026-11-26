@@ -8,6 +8,7 @@ Designed around **Clean / Layered Architecture**, **3-role RBAC across dual port
 ![React 19](https://img.shields.io/badge/React-19-149ECA?logo=react&logoColor=white)
 ![Tailwind CSS 4](https://img.shields.io/badge/Tailwind_CSS-4-06B6D4?logo=tailwindcss&logoColor=white)
 ![MySQL 8](https://img.shields.io/badge/MySQL-8.0-4479A1?logo=mysql&logoColor=white)
+![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)
 ![CI](https://img.shields.io/badge/CI-GitHub_Actions-2088FF?logo=githubactions&logoColor=white)
 
 ---
@@ -102,7 +103,7 @@ flowchart LR
 | Self-registration & profile management | Own profile | — | — |
 | Vehicle registration, edit & service history | Own vehicles | All vehicles (incl. ownership transfer) | All vehicles |
 | Service catalogue management | Browse active | Create, edit & activate/deactivate | Create, edit & activate/deactivate |
-| Appointment booking, live slot picker & 1-click status workflow | Pick live slots, book & cancel own | Live slots, full lifecycle & conflict checks | Live slots, full lifecycle & conflict checks |
+| Appointment booking, live slot picker & 1-click status workflow | Pick live slots, book & cancel own (≥24h) | Live slots, full lifecycle & conflict checks | Live slots, full lifecycle & conflict checks |
 | Mechanic management & job assignment | View assigned | Manage mechanics & assign jobs | Manage mechanics & assign jobs |
 | Spare parts inventory & job part usage | View parts used on own jobs | Full inventory, stock adjust & job parts | Full inventory, stock adjust & job parts |
 | Invoicing, payment recording & printable PDF invoice | View own invoice & print receipt | Auto-invoice, record payments & print | Auto-invoice, record payments & print |
@@ -122,6 +123,7 @@ See [AUTHENTICATION.md](AUTHENTICATION.md) for the complete security architectur
 | **Backend API** | C# / .NET 9, ASP.NET Core Web API, OpenAPI |
 | **Data & ORM** | Entity Framework Core 9, Pomelo MySQL Provider, MySQL 8.0 |
 | **Security** | ASP.NET Core Cookie Auth, Data Protection, Identity `PasswordHasher`, Antiforgery (CSRF), Rate Limiting |
+| **Containers & Proxy** | Docker Multi-Stage Builds, Docker Compose (`db`, `migrate`, `api`, `web`), Nginx Same-Origin Reverse Proxy |
 | **Testing & CI** | xUnit, Real MySQL Integration Tests, Playwright E2E Scripts, GitHub Actions |
 
 ---
@@ -129,15 +131,18 @@ See [AUTHENTICATION.md](AUTHENTICATION.md) for the complete security architectur
 ## Project Structure
 
 ```text
-├── .github/workflows/ci.yml        # Automated CI: backend build, unit + MySQL integration tests, frontend tests & build
+├── .github/workflows/ci.yml        # Automated CI: backend/MySQL tests, frontend tests & build, Docker image builds
+├── .dockerignore                   # Excludes local binaries, node_modules, and scratch files from Docker context
+├── .env.docker.example             # Environment variable template for Docker Compose
+├── docker-compose.yml              # 4-service stack: MySQL 8, one-shot migrations, ASP.NET Core API, Nginx + React
 ├── docs/screenshots/               # Showcase screenshots
 ├── scripts/                        # Verification & Playwright browser E2E scripts
 ├── src/
 │   ├── CarWorkshop.Domain/         # Core entities, value invariants, and domain rules
 │   ├── CarWorkshop.Application/    # Use-case services, DTO contracts, and repository interfaces
 │   ├── CarWorkshop.Infrastructure/ # EF Core DbContext, entity configurations, migrations, MySQL repositories
-│   ├── CarWorkshop.Api/            # HTTP controllers, auth/CSRF middleware, validation, DI wiring
-│   └── CarWorkshop.Web/            # React 19 SPA (Customer Portal, Staff & Admin Portal, Tailwind UI)
+│   ├── CarWorkshop.Api/            # HTTP controllers, auth/CSRF middleware, validation, DI wiring, Dockerfile
+│   └── CarWorkshop.Web/            # React 19 SPA, Tailwind UI, Nginx reverse proxy config, Dockerfile
 └── tests/
     ├── CarWorkshop.UnitTests/      # Domain & business rule unit tests
     └── CarWorkshop.IntegrationTests/ # End-to-end API + real MySQL concurrency & security tests
@@ -156,7 +161,46 @@ See [AUTHENTICATION.md](AUTHENTICATION.md) for the complete security architectur
 
 ---
 
-## Getting Started (Local Development)
+## Quick Start with Docker Compose (Recommended)
+
+Run the full 3-tier stack (**MySQL 8 + EF Core Migrations + ASP.NET Core 9 API + React/Nginx**) without installing `.NET`, `Node.js`, or `MySQL` locally:
+
+1. **Create `.env` from the template** (never commit `.env`):
+
+   ```powershell
+   Copy-Item .env.docker.example .env
+   ```
+
+   Edit `.env` to set `MYSQL_ROOT_PASSWORD` and `MYSQL_PASSWORD`. For local plain-HTTP testing on `http://localhost:8080`, set `ASPNETCORE_ENVIRONMENT=Development`; keep `Production` when running behind an HTTPS reverse proxy.
+
+2. **Build and start all containers** (MySQL healthcheck → automatic `--migrate` → API → Nginx):
+
+   ```powershell
+   docker compose up -d --build
+   ```
+
+3. **Bootstrap the first Admin account** (one-time on a fresh database):
+
+   ```powershell
+   $adminUser = Read-Host 'Administrator username'
+   $secret = Read-Host 'Administrator password (12 to 128 characters)' -AsSecureString
+   $adminPass = [Net.NetworkCredential]::new('', $secret).Password
+   try {
+       docker compose run --rm -e "WORKSHOP_ADMIN_USERNAME=$adminUser" -e "WORKSHOP_ADMIN_PASSWORD=$adminPass" api --bootstrap-admin
+   } finally {
+       $adminPass = $null; $secret = $null
+   }
+   ```
+
+4. **Open in your browser**:
+   * **Customer Portal**: `http://localhost:8080/`
+   * **Staff & Admin Portal**: `http://localhost:8080/staff`
+
+   Stop containers while keeping database data intact with `docker compose down` (add `-v` only if you want to wipe the Docker volumes).
+
+---
+
+## Getting Started (Local Development without Docker)
 
 ### Prerequisites
 

@@ -33,7 +33,7 @@ TorquePro pairs a dual-portal, 3-role RBAC architecture (`/` for Customers, `/st
 ## Capabilities and Constraints
 
 - **Confirmed capabilities:**
-  - Customer portal (`/api/portal/*`): self-registration, profile editing, vehicle CRUD, active service browsing, live available slot picker (`/api/portal/availability`), self-booking and cancellation, status tracking, spare parts & invoice breakdown viewing, vehicle service history, and printable invoice/service receipts.
+  - Customer portal (`/api/portal/*`): self-registration, profile editing, vehicle CRUD, active service browsing, live available slot picker (`/api/portal/availability`), self-booking and ≥24-hour online cancellation (`BR-08`), status tracking, spare parts & invoice breakdown viewing, vehicle service history, and printable invoice/service receipts.
   - Staff & Admin operations (`/api/*`): operations dashboard (with live monthly collected revenue, outstanding invoice balance, and low-stock parts summary), customer and vehicle CRUD (including vehicle ownership transfer while preserving original appointment vehicle references), service catalogue activation/deactivation, spare parts inventory & stock adjustments (`/api/parts`), mechanic CRUD and job assignment, live slot availability (`/api/appointments/availability`), 1-click appointment workflow (`Requested → Confirmed → InProgress → Completed / Rejected / Cancelled`), mandatory mechanic assignment before work starts, job spare-parts usage with atomic stock deduction/restoration, auto-issued invoices (`INV-YYYY-00001`) with counter payment recording (`Cash`, `DuitNow QR`, `Card`, `Online Transfer`), post-completion service record and odometer logging, and printable PDF invoices/receipts.
   - Admin governance & production readiness: Staff/Admin account management, password resets, self-protection against demoting/deactivating the last active Admin, searchable append-only Audit Log with JSON diffs, security headers & `X-Request-Id` correlation, `GET /api/health/ready`, persistent Data Protection key path, and `--migrate` CLI.
 - **Security & data invariants:**
@@ -48,7 +48,7 @@ TorquePro pairs a dual-portal, 3-role RBAC architecture (`/` for Customers, `/st
 - **Open decisions / current absences:**
   - Automated online payment gateway checkout (e.g., Stripe/FPX) is not implemented — invoices and counter/manual payment recording (`Cash`, `DuitNow QR`, `Card`, `Online Transfer`) are implemented, while third-party payment gateway integration remains out of scope.
   - Localization beyond English (e.g., Bahasa Melayu UI) is not currently planned; English UI with Malaysian conventions is the confirmed baseline.
-  - Containerization / live production hosting details are deferred until the user builds the Docker deployment setup step by step.
+  - Multi-stage Dockerfiles (`CarWorkshop.Api`, `CarWorkshop.Web` with Nginx same-origin reverse proxy) and `docker-compose.yml` (`db`, `migrate`, `api`, `web`) are implemented; live HTTPS cloud hosting remains the next deployment milestone.
 
 ## Brand Commitments
 

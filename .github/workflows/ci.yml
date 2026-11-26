@@ -71,3 +71,14 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run build
+
+  docker:
+    name: Docker image builds
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build API image
+        run: docker build -f src/CarWorkshop.Api/Dockerfile -t torquepro-api:ci .
+      - name: Build Web image
+        run: docker build -f src/CarWorkshop.Web/Dockerfile -t torquepro-web:ci .

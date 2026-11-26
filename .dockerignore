@@ -1,8 +1,11 @@
 .git
 .vs
+.env
 .build-temp
 .local-backups
-.impeccable
+**/.impeccable
+**/.npm-cache
+**/.verification
 mysql-8.0.46-winx64
 sites
 docs
